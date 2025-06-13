@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "343766046263",
+    "project_id": "group-sharing-9d119",
+    "storage_bucket": "group-sharing-9d119.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:343766046263:android:364400077db7ae6ed411b2",
+        "android_client_info": {
+          "package_name": "com.sundeep.groupsharing"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "343766046263-fjdsvjhfdadktl39rlv3jdp0u1l2oo9v.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sundeep.groupsharing",
+            "certificate_hash": "9b909399776b71e517d0e8d6e82d7857e4f9df91"
+          }
+        },
+        {
+          "client_id": "343766046263-lbl5n43cq11h9vnp1hs7ktdgmf34uoo9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBa697BquKrxRC-_nFJzDJ225a19qSwEP8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "343766046263-lbl5n43cq11h9vnp1hs7ktdgmf34uoo9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "343766046263-uian150jq08s30phvnka8lsphq6iiuo1.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.sundeep.groupsharing"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
