@@ -75,6 +75,7 @@ class _ModernMapState extends State<ModernMap> {
                   subdomains: const ['a', 'b', 'c', 'd'],
                   tileProvider: CancellableNetworkTileProvider(),
                   userAgentPackageName: 'com.example.groupsharing',
+                  retinaMode: MediaQuery.of(context).devicePixelRatio > 1.0,
                 ),
                 MarkerLayer(
                   markers: [

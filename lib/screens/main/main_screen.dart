@@ -5,6 +5,7 @@ import 'package:groupsharing/widgets/modern_map.dart';
 import 'package:groupsharing/widgets/app_map_widget.dart' show MapMarker;
 import '../../providers/auth_provider.dart';
 import '../../providers/location_provider.dart';
+import '../friends/friends_family_screen.dart';
 
 
 class MainScreen extends StatefulWidget {
@@ -36,8 +37,8 @@ class _MainScreenState extends State<MainScreen> {
       body: IndexedStack(
         index: _selectedIndex,
         children: [
+          const FriendsFamilyScreen(),
           _buildMapScreen(),
-          const Placeholder(child: Center(child: Text('Friends Screen'))), // Temporary placeholder
           _buildProfileScreen(),
         ],
       ),
@@ -46,12 +47,12 @@ class _MainScreenState extends State<MainScreen> {
         onTap: (index) => setState(() => _selectedIndex = index),
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.map),
-            label: 'Map',
-          ),
-          BottomNavigationBarItem(
             icon: Icon(Icons.people),
             label: 'Friends',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.map),
+            label: 'Map',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person),
