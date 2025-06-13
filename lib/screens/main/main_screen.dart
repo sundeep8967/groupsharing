@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
-import 'package:groupsharing/widgets/app_map_widget.dart';
+import 'package:groupsharing/widgets/modern_map.dart';
+import 'package:groupsharing/widgets/app_map_widget.dart' show MapMarker;
 import '../../providers/auth_provider.dart';
 import '../../providers/location_provider.dart';
 
@@ -129,8 +130,9 @@ class _MainScreenState extends State<MainScreen> {
               children: [
                 // App Map
                 Positioned.fill(
-                  child: AppMapWidget(
+                  child: ModernMap(
                     initialPosition: currentLocation,
+                    userLocation: currentLocation,
                     markers: nearbyMarkers,
                     showUserLocation: true,
                   ),
