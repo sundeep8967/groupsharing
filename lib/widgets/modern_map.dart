@@ -12,6 +12,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:groupsharing/models/map_marker.dart';
 import '../../providers/auth_provider.dart' as app_auth;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class _Debouncer {
   final Duration delay;
@@ -300,12 +301,53 @@ class _ModernMapState extends State<ModernMap>
   }
 
   Marker _buildMarker(MapMarker m) {
-    // Remove the default red marker icon for other users
+    // Fetch user profile photo from Firestore (if available)
     return Marker(
-      width: 0,
-      height: 0,
+      width: 48,
+      height: 48,
       point: m.point,
-      child: Container(),
+      child: FutureBuilder<DocumentSnapshot>(
+        future: FirebaseFirestore.instance.collection('users').doc(m.id).get(),
+        builder: (context, snapshot) {
+          final data = snapshot.data?.data() as Map<String, dynamic>?;
+          final photoUrl = data?['photoUrl'];
+          final displayName = data?['displayName'] ?? '';
+          if (photoUrl != null && photoUrl.isNotEmpty) {
+            return AnimatedScale(
+              scale: 1.0,
+              duration: const Duration(milliseconds: 200),
+              child: Material(
+                elevation: 4,
+                shape: const CircleBorder(),
+                child: CircleAvatar(
+                  radius: 22,
+                  backgroundImage: CachedNetworkImageProvider(photoUrl, cacheKey: 'profile_${m.id}'),
+                  backgroundColor: Colors.white,
+                ),
+              ),
+            );
+          } else {
+            // Fallback: colored initial
+            return AnimatedScale(
+              scale: 1.0,
+              duration: const Duration(milliseconds: 200),
+              child: Material(
+                elevation: 4,
+                shape: const CircleBorder(),
+                color: Colors.blueAccent,
+                child: CircleAvatar(
+                  radius: 22,
+                  backgroundColor: Colors.blueAccent,
+                  child: Text(
+                    displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                    style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            );
+          }
+        },
+      ),
     );
   }
 

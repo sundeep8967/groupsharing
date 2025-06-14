@@ -4,10 +4,12 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geocoding/geocoding.dart';
 import '../services/location_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class LocationProvider with ChangeNotifier {
   final LocationService _locationService = LocationService();
   StreamSubscription<Position>? _locationSubscription;
+  StreamSubscription? _friendsLocationSubscription;
   LatLng? _currentLocation;
   List<String> _nearbyUsers = [];
   bool _isTracking = false;
@@ -63,6 +65,10 @@ class LocationProvider with ChangeNotifier {
             _userLocations[userId] = location;
             _status = 'Location updated';
             await _getAddressFromCoordinates(location.latitude, location.longitude);
+            await FirebaseFirestore.instance.collection('users').doc(userId).update({
+              'location': {'lat': location.latitude, 'lng': location.longitude, 'updatedAt': FieldValue.serverTimestamp()},
+              'lastOnline': FieldValue.serverTimestamp(),
+            });
             notifyListeners();
           }
         },
@@ -93,6 +99,9 @@ class LocationProvider with ChangeNotifier {
         }
         if (changed) notifyListeners();
       });
+
+      // Listen to friends' locations
+      _listenToFriendsLocations(userId);
     } catch (e) {
       _isTracking = false;
       _error = e.toString();
@@ -100,6 +109,38 @@ class LocationProvider with ChangeNotifier {
       notifyListeners();
       rethrow;
     }
+  }
+
+  void _listenToFriendsLocations(String userId) {
+    _friendsLocationSubscription?.cancel();
+    _friendsLocationSubscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .snapshots()
+        .listen((userDoc) {
+      final data = userDoc.data();
+      final List friends = data?['friends'] ?? [];
+      if (friends.isEmpty) {
+        _userLocations.clear();
+        notifyListeners();
+        return;
+      }
+      FirebaseFirestore.instance
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: friends)
+          .snapshots()
+          .listen((query) {
+        final updated = <String, LatLng>{};
+        for (final doc in query.docs) {
+          final loc = doc['location'];
+          if (loc != null && loc['lat'] != null && loc['lng'] != null) {
+            updated[doc.id] = LatLng(loc['lat'], loc['lng']);
+          }
+        }
+        _userLocations = updated;
+        notifyListeners();
+      });
+    });
   }
 
   // Stop tracking location
@@ -164,6 +205,7 @@ class LocationProvider with ChangeNotifier {
   @override
   void dispose() {
     _locationSubscription?.cancel();
+    _friendsLocationSubscription?.cancel();
     super.dispose();
   }
 }

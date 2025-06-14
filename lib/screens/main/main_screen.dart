@@ -10,6 +10,8 @@ import '../../providers/location_provider.dart';
 import '../friends/friends_family_screen.dart';
 import '../friends/add_friends_screen.dart';
 import '../profile/profile_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'notification_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -28,6 +30,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   // State for location info overlay
   bool _showLocationInfo = true;
   
+  int _unseenNotificationCount = 0;
+  
+  static const List<Widget> _screens = [
+    FriendsFamilyScreen(),
+    // Map screen is built dynamically
+    SizedBox(),
+    AddFriendsScreen(),
+    ProfileScreen(),
+    NotificationScreen(),
+  ];
+  
   @override
   void initState() {
     super.initState();
@@ -36,6 +49,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeTracking();
     });
+
+    final user = Provider.of<AuthProvider>(context, listen: false).user;
+    if (user != null) {
+      FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('notifications')
+        .where('seen', isEqualTo: false)
+        .snapshots()
+        .listen((snapshot) {
+          setState(() {
+            _unseenNotificationCount = snapshot.docs.length;
+          });
+        });
+    }
   }
 
   @override
@@ -74,32 +102,65 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           _buildMapScreen(),
           const AddFriendsScreen(),
           const ProfileScreen(),
+          const NotificationScreen(),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.people_outline),
-            activeIcon: Icon(Icons.people),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        destinations: [
+          NavigationDestination(
+            icon: const Icon(Icons.people_outline),
+            selectedIcon: const Icon(Icons.people),
             label: 'Friends',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.map_outlined),
-            activeIcon: Icon(Icons.map),
+          NavigationDestination(
+            icon: const Icon(Icons.map_outlined),
+            selectedIcon: const Icon(Icons.map),
             label: 'Map',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_add_outlined),
-            activeIcon: Icon(Icons.person_add),
-            label: 'Add Friends',
+          NavigationDestination(
+            icon: const Icon(Icons.person_add_outlined),
+            selectedIcon: const Icon(Icons.person_add),
+            label: 'Add',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
+          NavigationDestination(
+            icon: const Icon(Icons.person_outline),
+            selectedIcon: const Icon(Icons.person),
             label: 'Profile',
+          ),
+          NavigationDestination(
+            icon: Stack(
+              children: [
+                const Icon(Icons.notifications_none),
+                if (_unseenNotificationCount > 0)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
+                      child: Text(
+                        '$_unseenNotificationCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            selectedIcon: const Icon(Icons.notifications),
+            label: 'Alerts',
           ),
         ],
       ),
@@ -225,15 +286,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void _updateMarkersIfNeeded(LocationProvider locationProvider) {
     // Build markers from userLocations map
     final userLocations = locationProvider.userLocations;
-    final newMarkers = userLocations.entries.map((entry) {
+    final markers = userLocations.entries.map((entry) {
       return MapMarker(
         id: entry.key,
         point: entry.value,
         label: 'User: ${entry.key}',
       );
     }).toSet();
-    if (_cachedMarkers.length != newMarkers.length || !_cachedMarkers.every((m) => newMarkers.contains(m))) {
-      _cachedMarkers = newMarkers;
+    if (_cachedMarkers.length != markers.length || !_cachedMarkers.every((m) => markers.contains(m))) {
+      _cachedMarkers = markers;
     }
   }
 

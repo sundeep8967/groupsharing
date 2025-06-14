@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
+import '../../providers/auth_provider.dart' as app_auth;
 
 class AddFriendsScreen extends StatefulWidget {
   const AddFriendsScreen({super.key});
@@ -11,43 +15,6 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
   final TextEditingController _searchController = TextEditingController();
   late TabController _tabController;
   
-  // Sample data for demonstration
-  final List<Map<String, dynamic>> _receivedRequests = [
-    {
-      'id': '1',
-      'name': 'Alex Johnson',
-      'username': '@alexj',
-      'avatar': 'A',
-      'time': '2h ago',
-    },
-    {
-      'id': '2',
-      'name': 'Sarah Wilson',
-      'username': '@sarahw',
-      'avatar': 'S',
-      'time': '1d ago',
-    },
-  ];
-
-  final List<Map<String, dynamic>> _sentRequests = [
-    {
-      'id': '3',
-      'name': 'Mike Chen',
-      'username': '@mikec',
-      'avatar': 'M',
-      'time': '3h ago',
-      'status': 'Pending',
-    },
-    {
-      'id': '4',
-      'name': 'Emma Davis',
-      'username': '@emmad',
-      'avatar': 'E',
-      'time': '2d ago',
-      'status': 'Pending',
-    },
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -61,48 +28,86 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
     super.dispose();
   }
 
-  void _addFriend() {
-    if (_searchController.text.isNotEmpty) {
-      print('Searching for and adding friend: ${_searchController.text}');
-      _searchController.clear();
+  Future<void> _sendFriendRequest(String targetEmailOrName) async {
+    final user = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
+    if (user == null) return;
+    final db = FirebaseFirestore.instance;
+    // Find user by email or name
+    final query = await db.collection('users')
+      .where('email', isEqualTo: targetEmailOrName)
+      .get();
+    final docs = query.docs;
+    if (docs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Friend request sent!')),
+        const SnackBar(content: Text('User not found.')),
       );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a username or name to add.')),
-      );
+      return;
     }
+    final targetUser = docs.first;
+    final targetUserId = targetUser.id;
+    if (targetUserId == user.uid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You cannot add yourself.')),
+      );
+      return;
+    }
+    // Check if request already exists
+    final existing = await db.collection('friend_requests')
+      .where('from', isEqualTo: user.uid)
+      .where('to', isEqualTo: targetUserId)
+      .where('status', isEqualTo: 'pending')
+      .get();
+    if (existing.docs.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Friend request already sent.')),
+      );
+      return;
+    }
+    // Send request
+    await db.collection('friend_requests').add({
+      'from': user.uid,
+      'to': targetUserId,
+      'status': 'pending',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Friend request sent!')),
+    );
   }
 
-  void _acceptRequest(String requestId) {
-    setState(() {
-      _receivedRequests.removeWhere((req) => req['id'] == requestId);
+  Future<void> _acceptRequest(String requestId, String fromUserId) async {
+    final user = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
+    if (user == null) return;
+    final db = FirebaseFirestore.instance;
+    // Update request status
+    await db.collection('friend_requests').doc(requestId).update({'status': 'accepted'});
+    // Add each other as friends
+    await db.collection('users').doc(user.uid).update({
+      'friends': FieldValue.arrayUnion([fromUserId])
+    });
+    await db.collection('users').doc(fromUserId).update({
+      'friends': FieldValue.arrayUnion([user.uid])
     });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Friend request accepted!')),
     );
   }
 
-  void _declineRequest(String requestId) {
-    setState(() {
-      _receivedRequests.removeWhere((req) => req['id'] == requestId);
-    });
+  Future<void> _declineRequest(String requestId) async {
+    await FirebaseFirestore.instance.collection('friend_requests').doc(requestId).update({'status': 'declined'});
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Friend request declined')),
+      const SnackBar(content: Text('Friend request declined.')),
     );
   }
 
-  void _cancelRequest(String requestId) {
-    setState(() {
-      _sentRequests.removeWhere((req) => req['id'] == requestId);
-    });
+  Future<void> _cancelRequest(String requestId) async {
+    await FirebaseFirestore.instance.collection('friend_requests').doc(requestId).delete();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Friend request cancelled')),
+      const SnackBar(content: Text('Friend request cancelled.')),
     );
   }
 
-  Widget _buildRequestItem(Map<String, dynamic> request, {bool isReceived = true}) {
+  Widget _buildRequestItem(Map<String, dynamic> request, String requestId, {bool isReceived = true}) {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 0),
       elevation: 0,
@@ -112,7 +117,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
         leading: CircleAvatar(
           backgroundColor: Theme.of(context).primaryColor.withOpacity(0.2),
           child: Text(
-            request['avatar'],
+            request['avatar'] ?? '',
             style: TextStyle(
               color: Theme.of(context).primaryColor,
               fontWeight: FontWeight.bold,
@@ -120,11 +125,11 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
           ),
         ),
         title: Text(
-          request['name'],
+          request['name'] ?? '',
           style: const TextStyle(fontWeight: FontWeight.w500),
         ),
         subtitle: Text(
-          '${request['username']} • ${request['time']}',
+          '${request['username'] ?? ''} • ${request['time'] ?? ''}',
           style: TextStyle(
             fontSize: 12,
             color: Theme.of(context).hintColor,
@@ -136,11 +141,11 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
                 children: [
                   IconButton(
                     icon: const Icon(Icons.check_circle_outline, color: Colors.green),
-                    onPressed: () => _acceptRequest(request['id']),
+                    onPressed: () => _acceptRequest(requestId, request['from']),
                   ),
                   IconButton(
                     icon: const Icon(Icons.cancel_outlined, color: Colors.red),
-                    onPressed: () => _declineRequest(request['id']),
+                    onPressed: () => _declineRequest(requestId),
                   ),
                 ],
               )
@@ -148,7 +153,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    request['status'],
+                    request['status'] ?? '',
                     style: TextStyle(
                       color: Theme.of(context).hintColor,
                       fontSize: 12,
@@ -156,7 +161,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, size: 20),
-                    onPressed: () => _cancelRequest(request['id']),
+                    onPressed: () => _cancelRequest(requestId),
                   ),
                 ],
               ),
@@ -194,7 +199,10 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
   @override
   Widget build(BuildContext context) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
-
+    final user = Provider.of<app_auth.AuthProvider>(context).user;
+    if (user == null) {
+      return const Center(child: Text('Please log in.'));
+    }
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -219,117 +227,95 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
             ],
           ),
         ),
-        body: Column(
+        body: TabBarView(
+          controller: _tabController,
           children: [
-            // Search and Add Friend Section
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  // Search input field
-                  Container(
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: colorScheme.surface,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                          child: Icon(
-                            Icons.search,
-                            color: colorScheme.onSurfaceVariant,
-                            size: 20,
-                          ),
-                        ),
-                        Expanded(
-                          child: TextField(
-                            controller: _searchController,
-                            decoration: InputDecoration(
-                              hintText: 'Search by username or name...',
-                              hintStyle: TextStyle(color: colorScheme.onSurfaceVariant),
-                              border: InputBorder.none,
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                            style: TextStyle(
-                              color: colorScheme.onSurface,
-                              fontSize: 16,
-                            ),
-                            onSubmitted: (value) => _addFriend(),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Add Friend Button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _addFriend,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: colorScheme.primary,
-                        foregroundColor: colorScheme.onPrimary,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      icon: const Icon(Icons.person_add_alt_1, size: 20),
-                      label: const Text(
-                        'Add Friend',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            // Received Requests
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('friend_requests')
+                  .where('to', isEqualTo: user.uid)
+                  .where('status', isEqualTo: 'pending')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final docs = snapshot.data!.docs;
+                if (docs.isEmpty) {
+                  return _buildEmptyState('No friend requests received yet.');
+                }
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final data = docs[index].data() as Map<String, dynamic>;
+                    final requestId = docs[index].id;
+                    return _buildRequestItem(data, requestId, isReceived: true);
+                  },
+                );
+              },
             ),
-            // Divider
-            Divider(height: 1, color: colorScheme.surfaceVariant),
-            // Tab Bar View
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  // Received Requests Tab
-                  _receivedRequests.isEmpty
-                      ? _buildEmptyState('No friend requests received yet.')
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: _receivedRequests.length,
-                          itemBuilder: (context, index) {
-                            return _buildRequestItem(
-                              _receivedRequests[index],
-                              isReceived: true,
-                            );
-                          },
-                        ),
-                  // Sent Requests Tab
-                  _sentRequests.isEmpty
-                      ? _buildEmptyState('No pending friend requests.')
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: _sentRequests.length,
-                          itemBuilder: (context, index) {
-                            return _buildRequestItem(
-                              _sentRequests[index],
-                              isReceived: false,
-                            );
-                          },
-                        ),
-                ],
-              ),
+            // Sent Requests
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('friend_requests')
+                  .where('from', isEqualTo: user.uid)
+                  .where('status', isEqualTo: 'pending')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final docs = snapshot.data!.docs;
+                if (docs.isEmpty) {
+                  return _buildEmptyState('No pending friend requests.');
+                }
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final data = docs[index].data() as Map<String, dynamic>;
+                    final requestId = docs[index].id;
+                    return _buildRequestItem(data, requestId, isReceived: false);
+                  },
+                );
+              },
             ),
           ],
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () async {
+            final input = await showDialog<String>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Add Friend'),
+                content: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    hintText: 'Enter email to add',
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, _searchController.text.trim()),
+                    child: const Text('Send'),
+                  ),
+                ],
+              ),
+            );
+            if (input != null && input.isNotEmpty) {
+              await _sendFriendRequest(input);
+              _searchController.clear();
+            }
+          },
+          icon: const Icon(Icons.person_add),
+          label: const Text('Add Friend'),
         ),
       ),
     );
