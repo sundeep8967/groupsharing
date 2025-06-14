@@ -326,18 +326,6 @@ class _ModernMapState extends State<ModernMap>
                   markers: _cachedMarkers,
                 ),
                 
-                // Current location marker
-                if (widget.userLocation != null)
-                  MarkerLayer(
-                    markers: [
-                      Marker(
-                        width: 40,
-                        height: 40,
-                        point: widget.userLocation!,
-                        child: const Icon(Icons.location_on, color: Colors.blue, size: 40),
-                      ),
-                    ],
-                  ),
               ],
             ),
             
