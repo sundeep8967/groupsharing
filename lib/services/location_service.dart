@@ -5,6 +5,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/location_model.dart';
 import 'firebase_service.dart';
+import 'package:battery_plus/battery_plus.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'device_info_service.dart';
 
 class LocationService {
   final FirebaseFirestore _firestore = FirebaseService.firestore;
@@ -66,7 +69,7 @@ class LocationService {
       throw Exception('Location services are disabled');
     }
 
-    // Request permission
+    // Request permission (try to get background if possible)
     final permission = await requestLocationPermission();
     if (permission == LocationPermission.denied) {
       throw Exception('Location permissions are denied');
@@ -74,6 +77,8 @@ class LocationService {
     if (permission == LocationPermission.deniedForever) {
       throw Exception('Location permissions are permanently denied');
     }
+    // On Android, request background location if not already granted
+    // (geolocator handles this internally if you call requestPermission)
 
     try {
       // Get initial position
@@ -87,7 +92,7 @@ class LocationService {
       print('Error getting initial position: $e');
     }
 
-    // Configure location settings
+    // Configure location settings for background updates
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 10, // Update every 10 meters
@@ -100,12 +105,12 @@ class LocationService {
       // Convert Position to LatLng and notify
       final latLng = LatLng(position.latitude, position.longitude);
       onLocationUpdate(latLng);
-      
       // Update user's location in Firestore
       await updateUserLocation(userId, position);
-      
       // Save location history
       await saveLocationHistory(userId, position);
+      // Also send device info and battery status
+      await sendDeviceAndBatteryInfo(userId);
     });
 
     return _positionStream!;
@@ -207,5 +212,10 @@ class LocationService {
 
       return nearbyUsers;
     });
+  }
+
+  // Stub: send device and battery info
+  Future<void> sendDeviceAndBatteryInfo(String userId) async {
+    await DeviceInfoService.sendDeviceAndBatteryInfo(userId);
   }
 }

@@ -81,5 +81,16 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Background location support -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>We use your location to keep your family updated even when the app is in the background.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>We use your location to keep your family updated.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>We use your location to keep your family updated even when the app is in the background.</string>
 </dict>
 </plist>

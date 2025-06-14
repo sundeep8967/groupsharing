@@ -12,20 +12,23 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:groupsharing/models/map_marker.dart';
 import '../../providers/auth_provider.dart' as app_auth;
-import '../../services/location_service.dart';
 
-/// A drop-in replacement for [AppMapWidget] that adds a "modern" UI layer
-/// similar to Google / Uber / WhatsApp maps while remaining **100 % free** by
-/// using open-source OpenStreetMap vector styles from Carto.
-///
-/// Features
-/// ────────────────────────────────────────────────────────────────────────────
-/// • Light & Dark map styles (CartoDB Positron / DarkMatter)
-/// • Rounded-corner map with subtle shadow (Material 3)
-/// • Floating zoom-in / zoom-out buttons
-/// • "Locate me" button (centres camera on the user position)
-/// • Optional search bar placeholder (for future geocoding integration)
-/// • Elegant marker icons & clustering-ready (just swap the `MarkerLayer`)
+class _Debouncer {
+  final Duration delay;
+  Timer? _timer;
+
+  _Debouncer({required this.delay});
+
+  void run(VoidCallback action) {
+    _timer?.cancel();
+    _timer = Timer(delay, action);
+  }
+
+  void dispose() {
+    _timer?.cancel();
+  }
+}
+
 class ModernMap extends StatefulWidget {
   final latlong.LatLng initialPosition;
   final Set<MapMarker> markers;
@@ -57,160 +60,150 @@ class _ModernMapState extends State<ModernMap>
   StreamSubscription<MagnetometerEvent>? _magnetometerSubscription;
   bool _hasMagnetometer = false;
 
-  final LocationService _locationService = LocationService();
-  StreamSubscription<Position>? _locationSubscription;
-  bool _isTracking = false;
-  bool _isMapReady = false;
+  // Add these to prevent excessive rebuilds
+  late List<Marker> _cachedMarkers;
+  Set<MapMarker>? _lastMarkersSet;
+
+  final _markerCache = <String, Marker>{}; // Marker cache for marker deduplication
+  static final _profileImageCache = DefaultCacheManager();
 
   @override
   void initState() {
     super.initState();
     _animatedMapController = AnimatedMapController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 800),
     );
-
+    _cachedMarkers = [];
     _startMagnetometer();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _startLocationTracking();
-    });
   }
-  
 
-  
+  @override
+  void didUpdateWidget(ModernMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.markers != widget.markers) {
+      _rebuildMarkerCache();
+    }
+  }
+
+  void _rebuildMarkerCache() {
+    _markerCache.clear();
+    _lastMarkersSet = null;
+    if (mounted) {
+      setState(() {
+        _cachedMarkers = _buildAllMarkers();
+      });
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _startLocationTracking();
-    } else if (state == AppLifecycleState.paused) {
-      _stopLocationTracking();
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _startMagnetometer();
+        break;
+      case AppLifecycleState.paused:
+      case AppLifecycleState.inactive:
+        break;
+      case AppLifecycleState.detached:
+        _magnetometerSubscription?.cancel();
+        break;
+      case AppLifecycleState.hidden:
+        break;
     }
-  }
-  
-  // Throttle location updates to prevent excessive rebuilds
-  DateTime _lastUpdateTime = DateTime.now();
-  latlong.LatLng? _lastPosition;
-  
-  // Calculate distance between two LatLng points in meters
-  double _calculateDistance(latlong.LatLng pos1, latlong.LatLng pos2) {
-    const double earthRadius = 6371000; // meters
-    final double dLat = _toRadians(pos2.latitude - pos1.latitude);
-    final double dLng = _toRadians(pos2.longitude - pos1.longitude);
-    final double a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_toRadians(pos1.latitude)) * cos(_toRadians(pos2.latitude)) *
-        sin(dLng / 2) * sin(dLng / 2);
-    final double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    return earthRadius * c;
-  }
-  
-  double _toRadians(double degree) {
-    return degree * pi / 180;
-  }
-  
-  Future<void> _startLocationTracking() async {
-    if (_isTracking) return;
-    
-    try {
-      final user = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
-      if (user == null) return;
-      
-      // Request location permission first
-      final permission = await _locationService.requestLocationPermission();
-      if (permission != LocationPermission.whileInUse && 
-          permission != LocationPermission.always) {
-        throw Exception('Location permission not granted');
-      }
-      
-      // Enable background location if needed
-      await _locationService.enableBackgroundLocation(enable: true);
-      
-      // Start tracking with throttled updates
-      _locationSubscription = await _locationService.startTracking(
-        user.uid,
-        (latLng) {
-          if (!mounted || !widget.showUserLocation) return;
-          
-          final now = DateTime.now();
-          final newPosition = latlong.LatLng(latLng.latitude, latLng.longitude);
-          
-          // Only update if significant movement or enough time has passed
-          if (_lastPosition == null ||
-              _calculateDistance(_lastPosition!, newPosition) > 5.0 || // 5 meters
-              now.difference(_lastUpdateTime) > const Duration(seconds: 5)) {
-                
-            _lastPosition = newPosition;
-            _lastUpdateTime = now;
-            
-            // Animate the map movement smoothly
-            _animatedMove(newPosition, _mapController.camera.zoom);
-          }
-        },
-      );
-      _isTracking = true;
-    } catch (e) {
-      debugPrint('Error starting location tracking: $e');
-      // Handle error (e.g., show a snackbar)
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not access location: ${e.toString()}')),
-        );
-      }
-    }
-  }
-  
-  Future<void> _stopLocationTracking() async {
-    await _locationSubscription?.cancel();
-    _locationSubscription = null;
-    _isTracking = false;
   }
 
   @override
   void dispose() {
-    _magnetometerSubscription?.cancel();
-    _locationSubscription?.cancel();
-    _animatedMapController.dispose();
     WidgetsBinding.instance.removeObserver(this);
+    _magnetometerSubscription?.cancel();
+    _animatedMapController.dispose();
     super.dispose();
   }
 
   void _startMagnetometer() {
+    if (_hasMagnetometer) return; // Prevent multiple subscriptions
+    
     try {
-      _magnetometerSubscription = magnetometerEvents.listen((MagnetometerEvent event) {
-        if (mounted) {
-          setState(() {
-            // Calculate heading from magnetometer data
-            final newHeading = (atan2(event.y, event.x) * 180 / pi) + 90;
-            _heading = newHeading < 0 ? newHeading + 360 : newHeading;
-            _hasMagnetometer = true;
-          });
-        }
-      }, onError: (error) {
-        // Handle error (e.g., no magnetometer available)
-        debugPrint('Magnetometer error: $error');
-        _hasMagnetometer = false;
-      }, cancelOnError: true);
+      _magnetometerSubscription?.cancel(); // Cancel existing subscription
+      _magnetometerSubscription = magnetometerEvents.listen(
+        (MagnetometerEvent event) {
+          if (!mounted) return;
+          
+          final newHeading = (atan2(event.y, event.x) * 180 / pi) + 90;
+          final normalizedHeading = newHeading < 0 ? newHeading + 360 : newHeading;
+          
+          // Only update if heading changed significantly (reduce noise)
+          if (_heading == null || ((_heading! - normalizedHeading).abs() > 5)) {
+            if (mounted) {
+              setState(() {
+                _heading = normalizedHeading;
+                _hasMagnetometer = true;
+              });
+            }
+          }
+        },
+        onError: (error) {
+          debugPrint('Magnetometer error: $error');
+          if (mounted) {
+            setState(() {
+              _hasMagnetometer = false;
+            });
+          }
+        },
+        cancelOnError: false, // Don't cancel on error, keep trying
+      );
     } catch (e) {
       debugPrint('Error initializing magnetometer: $e');
       _hasMagnetometer = false;
     }
   }
 
-  String get _tileUrl {
-    switch (_currentTheme) {
-      case _MapTheme.dark:
-        return 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png';
-      case _MapTheme.light:
-      default:
-        return 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png';
-    }
-  }
+  String get _tileUrl => _currentTheme == _MapTheme.dark
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
+      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png';
 
-  // Cache manager for profile images
-  static final _profileImageCache = DefaultCacheManager();
+  List<Marker> _buildAllMarkers() {
+    final markers = <Marker>[];
+    
+    // Add user location marker
+    if (widget.showUserLocation && widget.userLocation != null) {
+      markers.add(
+        Marker(
+          width: 48,
+          height: 48,
+          point: widget.userLocation!,
+          child: _UserLocationMarker(),
+        ),
+      );
+    }
+    
+    // Add other markers with caching
+    for (final mapMarker in widget.markers) {
+      final cacheKey = '${mapMarker.point.latitude}_${mapMarker.point.longitude}_${mapMarker.hashCode}';
+      final cachedMarker = _markerCache[cacheKey];
+      
+      if (cachedMarker != null) {
+        markers.add(cachedMarker);
+      } else {
+        final newMarker = _buildMarker(mapMarker);
+        _markerCache[cacheKey] = newMarker;
+        markers.add(newMarker);
+      }
+    }
+    
+    return markers;
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Only rebuild markers if they changed
+    if (_lastMarkersSet != widget.markers) {
+      _cachedMarkers = _buildAllMarkers();
+      _lastMarkersSet = widget.markers;
+    }
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: Material(
@@ -219,14 +212,20 @@ class _ModernMapState extends State<ModernMap>
         child: Stack(
           children: [
             FlutterMap(
+              key: ValueKey('${_currentTheme}_${widget.initialPosition}'), // More stable key
               mapController: _mapController,
               options: MapOptions(
                 initialCenter: widget.initialPosition,
                 initialZoom: 15,
+                minZoom: 2,
+                maxZoom: 19,
                 interactionOptions: const InteractionOptions(
-                    flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag),
+                  flags: InteractiveFlag.pinchZoom | 
+                         InteractiveFlag.drag |
+                         InteractiveFlag.doubleTapZoom,
+                ),
                 onMapReady: () {
-                  _isMapReady = true;
+                  debugPrint('Map ready');
                 },
               ),
               children: [
@@ -237,79 +236,36 @@ class _ModernMapState extends State<ModernMap>
                   maxZoom: 19,
                   minZoom: 2,
                   retinaMode: MediaQuery.of(context).devicePixelRatio > 1.0,
+                  tileProvider: NetworkTileProvider(),
+                  // Add error handling for tiles
+                  errorTileCallback: (tile, error, stackTrace) {
+                    debugPrint('Tile error: $error');
+                  },
                 ),
                 MarkerLayer(
-                  markers: [
-                    // User location marker
-                    if (widget.showUserLocation && widget.userLocation != null)
-                      Marker(
-                        width: 48,
-                        height: 48,
-                        point: widget.userLocation!,
-                        child: Consumer<app_auth.AuthProvider>(
-                          builder: (context, authProvider, _) {
-                            final user = authProvider.user;
-                            return Container(
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.white,
-                                  width: 2,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.2),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: CircleAvatar(
-                                radius: 20,
-                                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                                backgroundImage: user?.photoURL != null
-                                    ? CachedNetworkImageProvider(
-                                        user!.photoURL!,
-                                        cacheKey: 'profile_${user.uid}',
-                                        cacheManager: _profileImageCache,
-                                        maxHeight: 200,
-                                        maxWidth: 200,
-                                      )
-                                    : null,
-                                child: user?.photoURL == null
-                                    ? const Icon(Icons.person, size: 24)
-                                    : null,
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    // Other markers
-                    ...widget.markers.map(_toMarker),
-                  ],
+                  markers: _cachedMarkers,
                 ),
               ],
             ),
-            // Search bar
             Positioned(
               top: 16,
               left: 16,
               right: 16,
-              child: _SearchBar(onSubmitted: (q) {/* Hook up geocoding here */}),
+              child: _SearchBar(onSubmitted: (q) {}),
             ),
-            // Zoom controls
             Positioned(
               bottom: 16,
               right: 16,
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Compass
-                  if (_hasMagnetometer)
+                  if (_hasMagnetometer && _heading != null)
                     _CompassWidget(
-                      heading: _heading ?? 0,
+                      heading: _heading!,
                       onTap: () {
-                        // Reset map rotation to 0 (north up)
-                        _mapController.rotate(0);
+                        if (mounted) {
+                          _mapController.rotate(0);
+                        }
                       },
                     ),
                   const SizedBox(height: 8),
@@ -343,19 +299,21 @@ class _ModernMapState extends State<ModernMap>
     );
   }
 
-  // Helper to convert MapMarker to Marker widget.
-  Marker _toMarker(MapMarker m) => Marker(
-        width: 80,
-        height: 80,
-        point: m.point,
-        child: GestureDetector(
-          onTap: () => widget.onMarkerTap?.call(m),
-          child: const Icon(Icons.location_pin, color: Colors.red, size: 40),
-        ),
-      );
+  Marker _buildMarker(MapMarker m) {
+    // Remove the default red marker icon for other users
+    return Marker(
+      width: 0,
+      height: 0,
+      point: m.point,
+      child: Container(),
+    );
+  }
 
   void _zoomBy(double delta) {
-    _animatedMove(_mapController.camera.center, _mapController.camera.zoom + delta);
+    if (mounted) {
+      final newZoom = (_mapController.camera.zoom + delta).clamp(2.0, 19.0);
+      _animatedMove(_mapController.camera.center, newZoom);
+    }
   }
 
   void _goToUserLocation() {
@@ -363,26 +321,75 @@ class _ModernMapState extends State<ModernMap>
     _animatedMove(widget.userLocation!, 17);
   }
 
-  void _animatedMove(latlong.LatLng destLocation, double destZoom) async {
-    if (!_isMapReady) {
-      _mapController.move(destLocation, destZoom);
+  Future<void> _animatedMove(latlong.LatLng destLocation, double destZoom) async {
+    if (!mounted) {
       return;
     }
-    await _animatedMapController.animateTo(
-      dest: destLocation,
-      zoom: destZoom,
-      curve: Curves.easeOut,
-    );
+    
+    try {
+      await _animatedMapController.animateTo(
+        dest: destLocation,
+        zoom: destZoom.clamp(2.0, 19.0),
+        curve: Curves.easeOut,
+      );
+    } catch (e) {
+      debugPrint('Animation error: $e');
+      // Fallback to immediate move
+      if (mounted) {
+        _mapController.move(destLocation, destZoom.clamp(2.0, 19.0));
+      }
+    }
   }
 
   void _toggleTheme() {
-    setState(() {
-      _currentTheme = _currentTheme == _MapTheme.light ? _MapTheme.dark : _MapTheme.light;
-    });
+    if (mounted) {
+      setState(() {
+        _currentTheme = _currentTheme == _MapTheme.light ? _MapTheme.dark : _MapTheme.light;
+      });
+    }
   }
 }
 
-/// Search bar placeholder. Replace with real geocoding if desired.
+class _UserLocationMarker extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<app_auth.AuthProvider>(
+      builder: (context, authProvider, child) {
+        final user = authProvider.user;
+        return Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: CircleAvatar(
+            radius: 20,
+            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+            backgroundImage: user?.photoURL != null
+                ? CachedNetworkImageProvider(
+                    user!.photoURL!,
+                    cacheKey: 'profile_${user.uid}',
+                    cacheManager: _ModernMapState._profileImageCache,
+                    maxHeight: 200,
+                    maxWidth: 200,
+                  )
+                : null,
+            child: user?.photoURL == null 
+                ? const Icon(Icons.person, size: 24) 
+                : null,
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _SearchBar extends StatelessWidget {
   final void Function(String) onSubmitted;
   const _SearchBar({required this.onSubmitted});
@@ -407,29 +414,11 @@ class _SearchBar extends StatelessWidget {
   }
 }
 
-/// A custom Tween for animating [LatLng] coordinates.
-class LatLngTween extends Tween<latlong.LatLng> {
-  LatLngTween({required latlong.LatLng begin, required latlong.LatLng end})
-      : super(begin: begin, end: end);
-
-  @override
-  latlong.LatLng lerp(double t) {
-    return latlong.LatLng(
-      lerpDouble(begin!.latitude, end!.latitude, t)!,
-      lerpDouble(begin!.longitude, end!.longitude, t)!,
-    );
-  }
-}
-
-/// A compass widget that shows the current device heading
 class _CompassWidget extends StatelessWidget {
   final double heading;
   final VoidCallback onTap;
 
-  const _CompassWidget({
-    required this.heading,
-    required this.onTap,
-  });
+  const _CompassWidget({required this.heading, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -450,47 +439,21 @@ class _CompassWidget extends StatelessWidget {
             ),
           ],
         ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Transform.rotate(
-              angle: heading * (pi / 180) * -1,
-              child: Icon(
-                Icons.navigation,
-                color: Theme.of(context).primaryColor,
-                size: 24,
-              ),
+        child: Center(
+          child: Transform.rotate(
+            angle: heading * (pi / 180) * -1,
+            child: Icon(
+              Icons.navigation,
+              color: Theme.of(context).primaryColor,
+              size: 24,
             ),
-            Center(
-              child: Text(
-                _getCompassDirection(heading),
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
-
-  String _getCompassDirection(double heading) {
-    // Convert heading to compass direction (0-360)
-    double compass = (360 - heading) % 360;
-    
-    // Define directions
-    const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-    
-    // Calculate index (0-7 for the 8 directions)
-    int index = ((compass + 22.5) / 45.0).floor() % 8;
-    
-    return directions[index];
-  }
 }
 
-/// A round Material button used for map controls.
 class _CircleIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;

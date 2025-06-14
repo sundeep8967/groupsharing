@@ -10,6 +10,7 @@ import '../../providers/auth_provider.dart' as app_auth;
 import '../../services/firebase_service.dart';
 import '../../services/deep_link_service.dart';
 import '../../models/saved_place.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -129,162 +130,172 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildProfileHeader(firebase_auth.User? user, ColorScheme colorScheme) {
-    final photoUrl = user?.photoURL;
-    final TextEditingController nameController = TextEditingController(text: user?.displayName ?? 'User');
-
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: colorScheme.shadow.withOpacity(0.05),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Profile Picture with Edit Button
-              Stack(
-                alignment: Alignment.bottomRight,
-                children: [
-                  CircleAvatar(
-                    radius: 36,
-                    backgroundColor: colorScheme.surfaceVariant,
-                    backgroundImage: _imageFile != null
-                        ? FileImage(_imageFile!)
-                        : (photoUrl != null ? NetworkImage(photoUrl) : null) as ImageProvider?,
-                    child: _isLoading
-                        ? const CircularProgressIndicator(strokeWidth: 2)
-                        : (_imageFile == null && photoUrl == null
-                            ? Icon(Icons.person, size: 36, color: colorScheme.onSurfaceVariant)
-                            : null),
-                  ),
-                  // Edit Photo Button
-                  Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: GestureDetector(
-                      onTap: _showImagePickerOptions,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: colorScheme.primary,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: colorScheme.surface,
-                            width: 2,
-                          ),
-                        ),
-                        child: Icon(
-                          Icons.edit,
-                          size: 16,
-                          color: colorScheme.onPrimary,
-                        ),
-                      ),
-                    ),
+    final userId = user?.uid;
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance.collection('users').doc(userId).get(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data() as Map<String, dynamic>?;
+        final fullName = data?['displayName'] ?? user?.displayName ?? 'User';
+        final email = data?['email'] ?? user?.email ?? '';
+        final photoUrl = data?['photoUrl'] ?? user?.photoURL;
+        final TextEditingController nameController = TextEditingController(text: fullName);
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: colorScheme.shadow.withOpacity(0.05),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
-              const SizedBox(width: 16),
-              // Name, Email, and Join Date
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Name with Edit Button
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            nameController.text,
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: colorScheme.onSurface,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Profile Picture with Edit Button
+                  Stack(
+                    alignment: Alignment.bottomRight,
+                    children: [
+                      CircleAvatar(
+                        radius: 36,
+                        backgroundColor: colorScheme.surfaceVariant,
+                        backgroundImage: _imageFile != null
+                            ? FileImage(_imageFile!)
+                            : (photoUrl != null
+                                ? CachedNetworkImageProvider(photoUrl, cacheKey: 'profile_$userId')
+                                : null) as ImageProvider?,
+                        child: _isLoading
+                            ? const CircularProgressIndicator(strokeWidth: 2)
+                            : (_imageFile == null && photoUrl == null
+                                ? Icon(Icons.person, size: 36, color: colorScheme.onSurfaceVariant)
+                                : null),
+                      ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: GestureDetector(
+                          onTap: _showImagePickerOptions,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: colorScheme.primary,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: colorScheme.surface,
+                                width: 2,
+                              ),
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            child: Icon(
+                              Icons.edit,
+                              size: 16,
+                              color: colorScheme.onPrimary,
+                            ),
                           ),
                         ),
-                        IconButton(
-                          icon: Icon(
-                            Icons.edit,
-                            size: 18,
-                            color: colorScheme.primary,
-                          ),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: () {
-                            // Show dialog to edit name
-                            showDialog(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                title: const Text('Edit Name'),
-                                content: TextField(
-                                  controller: nameController,
-                                  autofocus: true,
-                                  decoration: const InputDecoration(
-                                    hintText: 'Enter your name',
-                                  ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 16),
+                  // Name, Email, and Join Date
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Name with Edit Button
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                fullName,
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: colorScheme.onSurface,
                                 ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    child: const Text('Cancel'),
-                                  ),
-                                  TextButton(
-                                    onPressed: () async {
-                                      if (nameController.text.isNotEmpty) {
-                                        try {
-                                          await user?.updateDisplayName(nameController.text);
-                                          await user?.reload();
-                                          if (mounted) {
-                                            setState(() {});
-                                            Navigator.pop(context);
-                                          }
-                                        } catch (e) {
-                                          if (mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(content: Text('Failed to update name: $e')),
-                                            );
-                                          }
-                                        }
-                                      }
-                                    },
-                                    child: const Text('Save'),
-                                  ),
-                                ],
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            );
-                          },
+                            ),
+                            IconButton(
+                              icon: Icon(
+                                Icons.edit,
+                                size: 18,
+                                color: colorScheme.primary,
+                              ),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () {
+                                // Show dialog to edit name
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text('Edit Name'),
+                                    content: TextField(
+                                      controller: nameController,
+                                      autofocus: true,
+                                      decoration: const InputDecoration(
+                                        hintText: 'Enter your name',
+                                      ),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () async {
+                                          if (nameController.text.isNotEmpty) {
+                                            try {
+                                              await user?.updateDisplayName(nameController.text);
+                                              await FirebaseFirestore.instance.collection('users').doc(userId).update({
+                                                'displayName': nameController.text,
+                                              });
+                                              await user?.reload();
+                                              if (mounted) {
+                                                setState(() {});
+                                                Navigator.pop(context);
+                                              }
+                                            } catch (e) {
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('Failed to update name: $e')),
+                                                );
+                                              }
+                                            }
+                                          }
+                                        },
+                                        child: const Text('Save'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        // Email
+                        if (email.isNotEmpty) Text(
+                          email,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
-                    const SizedBox(height: 2),
-                    // Email
-                    if (user?.email != null) Text(
-                      user!.email!,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    // Join date removed as per user request
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
               ),
-              // Space previously occupied by share button
-              const SizedBox(width: 8),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -553,6 +564,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final downloadUrl = await snapshot.ref.getDownloadURL();
 
       await authProvider.user!.updatePhotoURL(downloadUrl);
+      await FirebaseFirestore.instance.collection('users').doc(userId).update({
+        'photoUrl': downloadUrl,
+      });
       await authProvider.user!.reload();
 
       if (mounted) {

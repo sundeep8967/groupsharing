@@ -17,6 +17,7 @@ class LocationProvider with ChangeNotifier {
   String? _city;
   String? _country;
   String? _postalCode;
+  Map<String, LatLng> _userLocations = {}; // userId -> LatLng
 
   LatLng? get currentLocation => _currentLocation;
   List<String> get nearbyUsers => _nearbyUsers;
@@ -27,6 +28,7 @@ class LocationProvider with ChangeNotifier {
   String? get city => _city;
   String? get country => _country;
   String? get postalCode => _postalCode;
+  Map<String, LatLng> get userLocations => _userLocations;
 
   // Start tracking location
   Future<void> startTracking(String userId) async {
@@ -37,25 +39,60 @@ class LocationProvider with ChangeNotifier {
       _status = 'Getting location...';
       notifyListeners();
 
+      LatLng? lastLocation;
+      DateTime lastUpdate = DateTime.now();
+      const double minDistance = 20.0;
+      const Duration minInterval = Duration(seconds: 5);
+
       _locationSubscription = await _locationService.startTracking(
         userId,
         (LatLng location) async {
-          _currentLocation = location;
-          _status = 'Location updated';
-          // Get address when location updates
-          await _getAddressFromCoordinates(location.latitude, location.longitude);
-          notifyListeners();
+          final now = DateTime.now();
+          bool shouldUpdate = false;
+          if (lastLocation == null) {
+            shouldUpdate = true;
+          } else {
+            final distance = const Distance().as(LengthUnit.Meter, lastLocation!, location);
+            final timeDiff = now.difference(lastUpdate);
+            shouldUpdate = distance > minDistance || timeDiff > minInterval;
+          }
+          if (shouldUpdate) {
+            lastLocation = location;
+            lastUpdate = now;
+            _currentLocation = location;
+            _userLocations[userId] = location;
+            _status = 'Location updated';
+            await _getAddressFromCoordinates(location.latitude, location.longitude);
+            notifyListeners();
+          }
         },
       );
-      
       _isTracking = true;
-      
-      // Listen for nearby users
-      _locationService.getNearbyUsers(userId, 5.0).listen((users) {
-        _nearbyUsers = users;
-        notifyListeners();
-      });
 
+      // Listen for nearby users and their locations
+      _locationService.getNearbyUsers(userId, 5.0).listen((users) async {
+        bool changed = false;
+        // Remove users who are no longer nearby
+        final toRemove = _userLocations.keys.where((id) => id != userId && !users.contains(id)).toList();
+        for (final id in toRemove) {
+          _userLocations.remove(id);
+          changed = true;
+        }
+        // Add/update locations for new/nearby users
+        for (final id in users) {
+          if (id == userId) continue;
+          final loc = await _locationService.getLastKnownLocation(id);
+          if (loc != null && _userLocations[id] != loc) {
+            _userLocations[id] = loc;
+            changed = true;
+          }
+        }
+        if (_nearbyUsers.length != users.length || !_nearbyUsers.every((u) => users.contains(u))) {
+          _nearbyUsers = users;
+          changed = true;
+        }
+        if (changed) notifyListeners();
+      });
     } catch (e) {
       _isTracking = false;
       _error = e.toString();
