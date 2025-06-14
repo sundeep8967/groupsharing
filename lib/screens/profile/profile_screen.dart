@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -25,13 +26,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   File? _imageFile;
 
   String _generateFriendCode(String uid) {
-    // Generate a consistent 6-digit code from user ID
     if (uid.isEmpty) return 'ABCDEF';
+    // Generate a consistent 6-character alphanumeric code from user ID
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final hash = uid.hashCode.abs();
-    final code = String.fromCharCodes(
-      List.generate(6, (i) => (hash >> (i * 5) & 0x1F) + 65),
+    final rand = Random(hash);
+    return String.fromCharCodes(
+      List.generate(6, (_) => chars.codeUnitAt(rand.nextInt(chars.length))),
     );
-    return code.substring(0, 6);
   }
 
   @override
@@ -51,6 +53,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
         backgroundColor: theme.scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.exit_to_app, size: 24),
+            onPressed: () async {
+              try {
+                await Provider.of<app_auth.AuthProvider>(context, listen: false).signOut();
+                if (mounted) {
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    '/welcome',
+                    (route) => false,
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error signing out: ${e.toString()}')),
+                  );
+                }
+              }
+            },
+            tooltip: 'Logout',
+          ),
+        ],
       ),
       body: Column(
         children: [

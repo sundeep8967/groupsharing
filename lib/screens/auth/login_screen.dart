@@ -19,10 +19,23 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _isLoading = true);
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       await authProvider.signInWithGoogle();
-    } catch (e) {
+      
+      // If we get here, sign in was successful
       if (mounted) {
+        // Check if we're still on the login screen before navigating
+        if (ModalRoute.of(context)?.isCurrent ?? false) {
+          // Navigate to home screen
+          Navigator.pushReplacementNamed(context, '/main');
+        }
+      }
+    } catch (e) {
+      // Only show error message if the widget is still mounted and it's not a cancellation
+      if (mounted && e.toString() != 'Exception: Google Sign In was cancelled') {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to sign in: ${e.toString()}')),
+          const SnackBar(
+            content: Text('Failed to sign in. Please try again.'),
+            duration: Duration(seconds: 3),
+          ),
         );
       }
     } finally {

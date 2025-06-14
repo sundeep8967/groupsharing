@@ -12,6 +12,7 @@ import '../friends/add_friends_screen.dart';
 import '../profile/profile_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'notification_screen.dart';
+import 'package:geolocator/geolocator.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -32,6 +33,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   
   int _unseenNotificationCount = 0;
   
+  // Add a field to track the dialog
+  BuildContext? _locationDialogContext;
+  
+  bool _locationEnabled = true;
+  
   static const List<Widget> _screens = [
     FriendsFamilyScreen(),
     // Map screen is built dynamically
@@ -48,6 +54,29 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeTracking();
+      final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+      locationProvider.onLocationServiceDisabled = () {
+        if (mounted && _locationDialogContext == null) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogContext) {
+              _locationDialogContext = dialogContext;
+              return const AlertDialog(
+                title: Text('Location is Off'),
+                content: Text('Location services are disabled. Please turn on location to use this app.'),
+              );
+            },
+          );
+        }
+      };
+      // Listen for location service enabled
+      locationProvider.addListener(() async {
+        if (locationProvider.error == null && _locationDialogContext != null) {
+          Navigator.of(_locationDialogContext!).pop();
+          _locationDialogContext = null;
+        }
+      });
     });
 
     final user = Provider.of<AuthProvider>(context, listen: false).user;
@@ -76,6 +105,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _initializeTracking();
+      _checkLocationEnabled();
     }
   }
 
@@ -92,78 +122,114 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _checkLocationEnabled() async {
+    final enabled = await Geolocator.isLocationServiceEnabled();
+    if (mounted) setState(() => _locationEnabled = enabled);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: [
-          const FriendsFamilyScreen(),
-          _buildMapScreen(),
-          const AddFriendsScreen(),
-          const ProfileScreen(),
-          const NotificationScreen(),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
-        destinations: [
-          NavigationDestination(
-            icon: const Icon(Icons.people_outline),
-            selectedIcon: const Icon(Icons.people),
-            label: 'Friends',
+    // Always check location status
+    _checkLocationEnabled();
+    return Stack(
+      children: [
+        Scaffold(
+          body: IndexedStack(
+            index: _selectedIndex,
+            children: [
+              const FriendsFamilyScreen(),
+              _buildMapScreen(),
+              const AddFriendsScreen(),
+              const ProfileScreen(),
+              const NotificationScreen(),
+            ],
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.map_outlined),
-            selectedIcon: const Icon(Icons.map),
-            label: 'Map',
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.person_add_outlined),
-            selectedIcon: const Icon(Icons.person_add),
-            label: 'Add',
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.person_outline),
-            selectedIcon: const Icon(Icons.person),
-            label: 'Profile',
-          ),
-          NavigationDestination(
-            icon: Stack(
-              children: [
-                const Icon(Icons.notifications_none),
-                if (_unseenNotificationCount > 0)
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      constraints: const BoxConstraints(
-                        minWidth: 16,
-                        minHeight: 16,
-                      ),
-                      child: Text(
-                        '$_unseenNotificationCount',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+            destinations: [
+              NavigationDestination(
+                icon: const Icon(Icons.people_outline),
+                selectedIcon: const Icon(Icons.people),
+                label: 'Friends',
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.map_outlined),
+                selectedIcon: const Icon(Icons.map),
+                label: 'Map',
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.person_add_outlined),
+                selectedIcon: const Icon(Icons.person_add),
+                label: 'Add',
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.person_outline),
+                selectedIcon: const Icon(Icons.person),
+                label: 'Profile',
+              ),
+              NavigationDestination(
+                icon: Stack(
+                  children: [
+                    const Icon(Icons.notifications_none),
+                    if (_unseenNotificationCount > 0)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          child: Text(
+                            '$_unseenNotificationCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
                         ),
-                        textAlign: TextAlign.center,
                       ),
-                    ),
-                  ),
-              ],
-            ),
-            selectedIcon: const Icon(Icons.notifications),
-            label: 'Alerts',
+                  ],
+                ),
+                selectedIcon: const Icon(Icons.notifications),
+                label: 'Alerts',
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+        if (!_locationEnabled)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withOpacity(0.7),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.location_off, color: Colors.white, size: 64),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Location is Off',
+                      style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Location services are disabled.\nPlease turn on location to use this app.',
+                      style: TextStyle(color: Colors.white, fontSize: 16),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 

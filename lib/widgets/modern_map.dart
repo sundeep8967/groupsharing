@@ -82,14 +82,6 @@ class _ModernMapState extends State<ModernMap>
     FMTC.FMTCStore('mainCache').manage.create();
   }
 
-  @override
-  void didUpdateWidget(ModernMap oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.markers != widget.markers) {
-      _rebuildMarkerCache();
-    }
-  }
-
   void _rebuildMarkerCache() {
     _markerCache.clear();
     _lastMarkersSet = null;
@@ -163,12 +155,15 @@ class _ModernMapState extends State<ModernMap>
     }
   }
 
-  String get _tileUrl =>
-      _currentTheme == _MapTheme.dark
-          // CartoDB Dark Matter (blue water)
-          ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
-          // CartoDB Positron (light, blue water)
-          : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png';
+  String get _tileUrl {
+    if (_currentTheme == _MapTheme.dark) {
+      // CartoDB Dark Matter (blue water) - supports high zoom levels
+      return 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png';
+    } else {
+      // OpenStreetMap's standard tile layer - more reliable for high zoom levels
+      return 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    }
+  }
 
   List<Marker> _buildAllMarkers() {
     final markers = <Marker>[];
@@ -202,7 +197,35 @@ class _ModernMapState extends State<ModernMap>
     return markers;
   }
 
+  bool _isUserInteracting = false;
+
   @override
+  void didUpdateWidget(ModernMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    
+    // If user location changed, update the map position
+    if (widget.userLocation != null && 
+        (oldWidget.userLocation == null || 
+         widget.userLocation!.latitude != oldWidget.userLocation!.latitude ||
+         widget.userLocation!.longitude != oldWidget.userLocation!.longitude)) {
+      // Only move the map if it's not currently being interacted with
+      if (!_isUserInteracting) {
+        _mapController.move(widget.userLocation!, _mapController.camera.zoom);
+      }
+    }
+    
+    // Rebuild markers if needed
+    if (oldWidget.markers != widget.markers) {
+      _rebuildMarkerCache();
+    }
+    
+    // Call the parent's didUpdateWidget if needed
+    if (oldWidget.key != widget.key ||
+        oldWidget.initialPosition != widget.initialPosition) {
+      // Reset the map position if the initial position changed
+      _mapController.move(widget.initialPosition, _mapController.camera.zoom);
+    }
+  }
   Widget build(BuildContext context) {
     // Only rebuild markers if they changed
     if (_lastMarkersSet != widget.markers) {
@@ -218,7 +241,7 @@ class _ModernMapState extends State<ModernMap>
         child: Stack(
           children: [
             FlutterMap(
-              key: ValueKey('${_currentTheme}_${widget.initialPosition}'), // More stable key
+              key: const ValueKey('map_widget'), // Remove initialPosition from the key
               mapController: _mapController,
               options: MapOptions(
                 initialCenter: widget.initialPosition,
@@ -231,21 +254,44 @@ class _ModernMapState extends State<ModernMap>
                          InteractiveFlag.doubleTapZoom,
                 ),
                 onMapReady: () {
-                  debugPrint('Map ready');
+                  // If we have a user location, center on it when map is ready
+                  if (widget.userLocation != null) {
+                    _mapController.move(widget.userLocation!, 15);
+                  }
+                },
+                onPointerDown: (event, _) {
+                  _isUserInteracting = true;
+                },
+                onPointerUp: (event, _) {
+                  _isUserInteracting = false;
+                },
+                onPointerCancel: (event, _) {
+                  _isUserInteracting = false;
                 },
               ),
               children: [
+                // Primary tile layer with OSM's recommended configuration
                 TileLayer(
-                  urlTemplate: _tileUrl,
-                  subdomains: const ['a', 'b', 'c', 'd'],
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.example.groupsharing',
                   maxZoom: 19,
                   minZoom: 2,
                   retinaMode: MediaQuery.of(context).devicePixelRatio > 1.0,
                   tileProvider: FMTC.FMTCStore('mainCache').getTileProvider(),
-                  // Add error handling for tiles
-                  errorTileCallback: (tile, error, stackTrace) {
-                    debugPrint('Tile error: $error');
+                  errorTileCallback: (TileImage tile, Object error, StackTrace? stackTrace) {
+                    debugPrint('Tile error at ${tile.coordinates}: $error');
+                  },
+                ),
+                // Fallback tile layer (simpler, more reliable)
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  maxZoom: 19,
+                  minZoom: 2,
+                  tileBuilder: (context, widget, tile) {
+                    return Opacity(
+                      opacity: 0.7,
+                      child: widget,
+                    );
                   },
                 ),
                 MarkerLayer(

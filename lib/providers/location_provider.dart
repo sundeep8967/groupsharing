@@ -20,6 +20,7 @@ class LocationProvider with ChangeNotifier {
   String? _country;
   String? _postalCode;
   Map<String, LatLng> _userLocations = {}; // userId -> LatLng
+  VoidCallback? onLocationServiceDisabled;
 
   LatLng? get currentLocation => _currentLocation;
   List<String> get nearbyUsers => _nearbyUsers;
@@ -40,6 +41,16 @@ class LocationProvider with ChangeNotifier {
       _error = null;
       _status = 'Getting location...';
       notifyListeners();
+
+      // Check if location services are enabled
+      final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _error = 'Location services are disabled';
+        _status = 'Location services are disabled';
+        notifyListeners();
+        if (onLocationServiceDisabled != null) onLocationServiceDisabled!();
+        return;
+      }
 
       LatLng? lastLocation;
       DateTime lastUpdate = DateTime.now();
