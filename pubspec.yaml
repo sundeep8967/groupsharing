@@ -46,6 +46,7 @@ dependencies:
   # OpenStreetMap integration
   flutter_map: ^6.1.0
   flutter_map_cancellable_tile_provider: ^2.0.0
+  flutter_map_animations: ^0.6.0
   
   # URL handling
   share_plus: ^10.0.0
@@ -75,6 +76,8 @@ dependencies:
   flutter_slidable: ^3.0.1
   timeline_tile: ^2.0.0
   smooth_page_indicator: ^1.0.0+2
+  sensors_plus: ^4.0.2
+  path_provider: ^2.1.2
 
 dev_dependencies:
   flutter_test:

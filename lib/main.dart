@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:groupsharing/widgets/app_map_widget.dart';
 import 'package:groupsharing/services/deep_link_service.dart';
+import 'package:groupsharing/models/map_marker.dart';
+import 'package:groupsharing/widgets/modern_map.dart';
 import 'providers/auth_provider.dart';
 import 'providers/location_provider.dart';
 import 'screens/auth/login_screen.dart';
@@ -137,8 +138,8 @@ class _LocationSharingPageState extends State<LocationSharingPage> {
           final markers = locationProvider.nearbyUsers
               .map((userId) => MapMarker(
                     id: userId,
-                    position: locationProvider.currentLocation!, // Default to current location until we implement real-time updates
-                    title: 'User: $userId',
+                    point: locationProvider.currentLocation!, // Default to current location until we implement real-time updates
+                    label: 'User: $userId',
                     // Additional user details can be added here
                   ))
               .toSet();
@@ -146,9 +147,10 @@ class _LocationSharingPageState extends State<LocationSharingPage> {
           return Column(
             children: [
               Expanded(
-                child: AppMapWidget(
+                child: ModernMap(
                   initialPosition: locationProvider.currentLocation!,
                   markers: markers,
+                  userLocation: locationProvider.currentLocation!,
                 ),
               ),
               const SizedBox(height: 8),

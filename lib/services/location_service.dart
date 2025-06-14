@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -16,11 +17,45 @@ class LocationService {
 
   // Request location permission
   Future<LocationPermission> requestLocationPermission() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      // Location services are disabled, request to enable them
+      serviceEnabled = await Geolocator.openLocationSettings();
+      if (!serviceEnabled) {
+        return LocationPermission.denied;
+      }
+    }
+    
+    // Check and request location permissions
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        return LocationPermission.denied;
+      }
     }
+    
+    if (permission == LocationPermission.deniedForever) {
+      // The user previously denied the permission. Show an educational UI.
+      return LocationPermission.deniedForever;
+    }
+    
     return permission;
+  }
+  
+  // Enable/disable background location updates
+  Future<bool> enableBackgroundLocation({required bool enable}) async {
+    try {
+      if (enable) {
+        // Configure for background location updates
+        await Geolocator.requestPermission();
+        await Geolocator.getCurrentPosition();
+      }
+      return true;
+    } catch (e) {
+      developer.log('Error configuring background location', error: e);
+      return false;
+    }
   }
   
   // Start tracking user's location
@@ -84,10 +119,17 @@ class LocationService {
 
   // Update user's current location
   Future<void> updateUserLocation(String userId, Position position) async {
-    await _firestore.collection('users').doc(userId).set({
-      'lastLocation': GeoPoint(position.latitude, position.longitude),
-      'lastSeen': FieldValue.serverTimestamp(),
-    });
+    try {
+      await _firestore.collection('users').doc(userId).set({
+        'lastLocation': GeoPoint(position.latitude, position.longitude),
+        'lastSeen': FieldValue.serverTimestamp(),
+        'locationUpdatedAt': FieldValue.serverTimestamp(),
+        'locationAccuracy': position.accuracy,
+      }, SetOptions(merge: true));
+    } catch (e) {
+      developer.log('Error updating user location', error: e);
+      rethrow;
+    }
   }
 
   // Save location to history

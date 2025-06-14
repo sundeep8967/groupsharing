@@ -3,7 +3,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:groupsharing/widgets/modern_map.dart';
-import 'package:groupsharing/widgets/app_map_widget.dart' show MapMarker;
+import 'package:groupsharing/models/map_marker.dart';
 import 'package:groupsharing/services/deep_link_service.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/location_provider.dart';
@@ -135,9 +135,8 @@ class _MainScreenState extends State<MainScreen> {
               final location = entry.value;
               return MapMarker(
                 id: 'user_$index',
-                position: location,
-                title: 'User ${index + 1}',
-                snippet: 'Nearby user'
+                point: location,
+                label: 'User ${index + 1}',
               );
             }).toSet();
             
