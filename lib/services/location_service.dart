@@ -84,7 +84,7 @@ class LocationService {
 
   // Update user's current location
   Future<void> updateUserLocation(String userId, Position position) async {
-    await _firestore.collection('users').doc(userId).update({
+    await _firestore.collection('users').doc(userId).set({
       'lastLocation': GeoPoint(position.latitude, position.longitude),
       'lastSeen': FieldValue.serverTimestamp(),
     });

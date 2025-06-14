@@ -58,6 +58,15 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  Future<void> reloadUser() async {
+    if (_user != null) {
+      await _user!.reload();
+      // Re-fetch the user from FirebaseAuth instance to get the updated object.
+      _user = FirebaseAuth.instance.currentUser;
+      notifyListeners();
+    }
+  }
+
   // Sign in with Google
   Future<void> signInWithGoogle() async {
     try {

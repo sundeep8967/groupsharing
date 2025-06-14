@@ -25,4 +25,7 @@ class FirebaseService {
 
   static CollectionReference<Map<String, dynamic>> get friendshipsCollection =>
       _firestore.collection('friendships');
+
+  static CollectionReference<Map<String, dynamic>> savedPlacesCollection(String userId) =>
+      usersCollection.doc(userId).collection('saved_places');
 }

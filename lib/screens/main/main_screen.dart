@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:groupsharing/widgets/modern_map.dart';
 import 'package:groupsharing/widgets/app_map_widget.dart' show MapMarker;
+import 'package:groupsharing/services/deep_link_service.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/location_provider.dart';
 import '../friends/friends_family_screen.dart';
+import '../friends/add_friends_screen.dart';
+import '../profile/profile_screen.dart';
 
 
 class MainScreen extends StatefulWidget {
@@ -39,23 +43,33 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           const FriendsFamilyScreen(),
           _buildMapScreen(),
-          _buildProfileScreen(),
+          const AddFriendsScreen(),
+          const ProfileScreen(),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: (index) => setState(() => _selectedIndex = index),
+        type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.people),
+            icon: Icon(Icons.people_outline),
+            activeIcon: Icon(Icons.people),
             label: 'Friends',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.map),
+            icon: Icon(Icons.map_outlined),
+            activeIcon: Icon(Icons.map),
             label: 'Map',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.person),
+            icon: Icon(Icons.person_add_outlined),
+            activeIcon: Icon(Icons.person_add),
+            label: 'Add Friends',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            activeIcon: Icon(Icons.person),
             label: 'Profile',
           ),
         ],
@@ -303,30 +317,132 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  Future<void> _shareProfileLink(String userId) async {
+    try {
+      debugPrint('=== Starting share process ===');
+      debugPrint('User ID: $userId');
+      
+      // Generate the deep link
+      debugPrint('Generating deep link...');
+      final deepLink = DeepLinkService.generateProfileLink(userId);
+      debugPrint('Generated deep link: $deepLink');
+      
+      // Create the share message
+      final message = 'Add me as a friend on GroupSharing! $deepLink';
+      debugPrint('Message to share: $message');
+      
+      // Show a snackbar to indicate sharing is starting
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Preparing to share...')),
+        );
+      }
+      
+      // Share the message
+      debugPrint('Calling Share.share()...');
+      await Share.share(
+        message,
+        subject: 'Add me on GroupSharing',
+      );
+      debugPrint('Share dialog should be visible now');
+      
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Share dialog opened')),
+        );
+      }
+      
+    } catch (e, stackTrace) {
+      debugPrint('=== Error in _shareProfileLink ===');
+      debugPrint('Error: $e');
+      debugPrint('Stack trace: $stackTrace');
+      
+      // Show error message to the user
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to share: ${e.toString()}'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } finally {
+      debugPrint('=== Share process completed ===');
+    }
+  }
+
   Widget _buildProfileScreen() {
     return Consumer<AuthProvider>(
       builder: (context, authProvider, _) {
+        final user = authProvider.user;
+        if (user == null) {
+          return const Center(child: Text('Please sign in'));
+        }
+        
+        final photoUrl = user.photoURL;
+        final displayName = user.displayName ?? 'User';
+        
         return Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const CircleAvatar(
-                radius: 50,
-                child: Icon(Icons.person, size: 50),
+              Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 50,
+                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                    backgroundImage: photoUrl != null
+                        ? NetworkImage(photoUrl) as ImageProvider<Object>?
+                        : null,
+                    child: photoUrl == null
+                        ? Icon(
+                            Icons.person,
+                            size: 50,
+                            color: Theme.of(context).colorScheme.onPrimaryContainer,
+                          )
+                        : null,
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Theme.of(context).scaffoldBackgroundColor,
+                          width: 2,
+                        ),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.share, size: 20),
+                        color: Colors.white,
+                        onPressed: () => _shareProfileLink(user.uid),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
               Text(
-                authProvider.user?.displayName ?? 'User',
-                style: const TextStyle(fontSize: 24),
-              ),
-              Text(
-                authProvider.user?.email ?? '',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Theme.of(context).textTheme.bodyMedium?.color
-                      ?.withOpacity(0.7),
+                displayName,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
+              if (user.email != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  user.email!,
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Theme.of(context).textTheme.bodyMedium?.color
+                        ?.withOpacity(0.7),
+                  ),
+                ),
+              ],
               const SizedBox(height: 32),
               ElevatedButton.icon(
                 onPressed: () => authProvider.signOut(),

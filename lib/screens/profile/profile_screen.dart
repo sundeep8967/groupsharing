@@ -1,10 +1,15 @@
+import 'dart:io';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../providers/auth_provider.dart';
-import '../../services/firebase_service.dart';
-import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:share_plus/share_plus.dart';
+import '../../providers/auth_provider.dart' as app_auth;
+import '../../services/firebase_service.dart';
+import '../../services/deep_link_service.dart';
+import '../../models/saved_place.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -14,201 +19,556 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _bioController = TextEditingController();
   bool _isLoading = false;
-  String? _photoUrl;
   File? _imageFile;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadUserProfile();
-  }
-
-  Future<void> _loadUserProfile() async {
-    final userId = Provider.of<AuthProvider>(context, listen: false).user!.uid;
-    final doc = await FirebaseService.firestore.collection('users').doc(userId).get();
-    if (doc.exists) {
-      final data = doc.data() as Map<String, dynamic>;
-      setState(() {
-        _nameController.text = data['name'] ?? '';
-        _bioController.text = data['bio'] ?? '';
-        _photoUrl = data['photoUrl'];
-      });
-    }
-  }
-
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
-    
-    if (pickedFile != null) {
-      setState(() {
-        _imageFile = File(pickedFile.path);
-      });
-    }
-  }
-
-  Future<String?> _uploadImage() async {
-    if (_imageFile == null) return _photoUrl;
-
-    final userId = Provider.of<AuthProvider>(context, listen: false).user!.uid;
-    final ref = FirebaseStorage.instance
-        .ref()
-        .child('user_photos')
-        .child('$userId.jpg');
-
-    await ref.putFile(_imageFile!);
-    return await ref.getDownloadURL();
-  }
-
-  Future<void> _saveProfile() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _isLoading = true);
-
-    try {
-      final userId = Provider.of<AuthProvider>(context, listen: false).user!.uid;
-      final photoUrl = await _uploadImage();
-
-      await FirebaseService.firestore.collection('users').doc(userId).update({
-        'name': _nameController.text,
-        'bio': _bioController.text,
-        'photoUrl': photoUrl,
-        'updatedAt': DateTime.now(),
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile updated successfully')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error updating profile: $e')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
+  String _generateFriendCode(String uid) {
+    // Generate a consistent 6-digit code from user ID
+    if (uid.isEmpty) return 'ABCDEF';
+    final hash = uid.hashCode.abs();
+    final code = String.fromCharCodes(
+      List.generate(6, (i) => (hash >> (i * 5) & 0x1F) + 65),
+    );
+    return code.substring(0, 6);
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final user = Provider.of<app_auth.AuthProvider>(context).user;
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Profile'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.save),
-            onPressed: _isLoading ? null : _saveProfile,
-          ),
-        ],
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text('Profile & Settings', style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: theme.scaffoldBackgroundColor,
+        elevation: 0,
+        centerTitle: true,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              GestureDetector(
-                onTap: _pickImage,
-                child: Stack(
-                  children: [
-                    CircleAvatar(
-                      radius: 50,
-                      backgroundImage: _imageFile != null
-                          ? FileImage(_imageFile!)
-                          : _photoUrl != null
-                              ? NetworkImage(_photoUrl!) as ImageProvider
-                              : null,
-                      child: (_imageFile == null && _photoUrl == null)
-                          ? const Icon(Icons.person, size: 50)
-                          : null,
-                    ),
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).primaryColor,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.camera_alt,
-                          color: Colors.white,
-                          size: 20,
+      body: Column(
+        children: [
+          // Scrollable content
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+              child: Column(
+                children: [
+                  _buildProfileHeader(user, colorScheme),
+                  const SizedBox(height: 24),
+                  _buildSavedPlaces(theme),
+                  // Add extra space at the bottom
+                  SizedBox(height: bottomPadding + 80), // Extra space for the button
+                ],
+              ),
+            ),
+          ),
+          // Compact Friend Code Section
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                // Friend Code
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Your Code',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _generateFriendCode(user?.uid ?? ''),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Share Button
+                FilledButton.tonalIcon(
+                  onPressed: _shareProfile,
+                  icon: const Icon(Icons.share_outlined, size: 18),
+                  label: const Text('Share'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your name';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _bioController,
-                decoration: const InputDecoration(
-                  labelText: 'Bio',
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: 3,
-              ),
-              const SizedBox(height: 24),
-              if (_isLoading)
-                const CircularProgressIndicator()
-              else
-                ElevatedButton(
-                  onPressed: _saveProfile,
-                  child: const Text('Save Profile'),
-                ),
-              const SizedBox(height: 16),
-              const Divider(),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: const Icon(Icons.location_on),
-                title: const Text('Location Sharing Permissions'),
-                trailing: const Icon(Icons.arrow_forward_ios),
-                onTap: () {
-                  // Navigate to location permissions screen
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.history),
-                title: const Text('Location History'),
-                trailing: const Icon(Icons.arrow_forward_ios),
-                onTap: () {
-                  // Navigate to location history screen
-                },
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _bioController.dispose();
-    super.dispose();
+  Widget _buildProfileHeader(firebase_auth.User? user, ColorScheme colorScheme) {
+    final photoUrl = user?.photoURL;
+    final TextEditingController nameController = TextEditingController(text: user?.displayName ?? 'User');
+
+    return StatefulBuilder(
+      builder: (context, setState) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: colorScheme.shadow.withOpacity(0.05),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Profile Picture with Edit Button
+              Stack(
+                alignment: Alignment.bottomRight,
+                children: [
+                  CircleAvatar(
+                    radius: 36,
+                    backgroundColor: colorScheme.surfaceVariant,
+                    backgroundImage: _imageFile != null
+                        ? FileImage(_imageFile!)
+                        : (photoUrl != null ? NetworkImage(photoUrl) : null) as ImageProvider?,
+                    child: _isLoading
+                        ? const CircularProgressIndicator(strokeWidth: 2)
+                        : (_imageFile == null && photoUrl == null
+                            ? Icon(Icons.person, size: 36, color: colorScheme.onSurfaceVariant)
+                            : null),
+                  ),
+                  // Edit Photo Button
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: GestureDetector(
+                      onTap: _showImagePickerOptions,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: colorScheme.primary,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: colorScheme.surface,
+                            width: 2,
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.edit,
+                          size: 16,
+                          color: colorScheme.onPrimary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 16),
+              // Name, Email, and Join Date
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Name with Edit Button
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            nameController.text,
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.edit,
+                            size: 18,
+                            color: colorScheme.primary,
+                          ),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () {
+                            // Show dialog to edit name
+                            showDialog(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Edit Name'),
+                                content: TextField(
+                                  controller: nameController,
+                                  autofocus: true,
+                                  decoration: const InputDecoration(
+                                    hintText: 'Enter your name',
+                                  ),
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () async {
+                                      if (nameController.text.isNotEmpty) {
+                                        try {
+                                          await user?.updateDisplayName(nameController.text);
+                                          await user?.reload();
+                                          if (mounted) {
+                                            setState(() {});
+                                            Navigator.pop(context);
+                                          }
+                                        } catch (e) {
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text('Failed to update name: $e')),
+                                            );
+                                          }
+                                        }
+                                      }
+                                    },
+                                    child: const Text('Save'),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    // Email
+                    if (user?.email != null) Text(
+                      user!.email!,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    // Join date removed as per user request
+                  ],
+                ),
+              ),
+              // Space previously occupied by share button
+              const SizedBox(width: 8),
+            ],
+          ),
+        );
+      },
+    );
   }
+
+  Widget _buildSavedPlaces(ThemeData theme) {
+    final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+    final userId = authProvider.user?.uid;
+
+    if (userId == null) {
+      return const Center(
+        child: Text(
+          'Please log in to see saved places.',
+          style: TextStyle(fontSize: 14),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Saved Places',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Add new place coming soon!')),
+                );
+              },
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('Add'),
+              style: TextButton.styleFrom(
+                foregroundColor: theme.colorScheme.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseService.firestore
+              .collection('users')
+              .doc(userId)
+              .collection('saved_places')
+              .orderBy('createdAt', descending: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Text(
+                'Error: ${snapshot.error}',
+                style: const TextStyle(fontSize: 14, color: Colors.red),
+              );
+            }
+
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              );
+            }
+
+            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: Text(
+                  'No saved places yet',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: theme.colorScheme.onSurface.withOpacity(0.6),
+                  ),
+                ),
+              );
+            }
+
+            final places = snapshot.data!.docs.map((doc) {
+              try {
+                return SavedPlace.fromFirestore(doc);
+              } catch (e) {
+                debugPrint('Error parsing saved place doc ${doc.id}: $e');
+                return null;
+              }
+            }).whereType<SavedPlace>().toList();
+
+            if (places.isEmpty) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: Text(
+                  'No saved places yet',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: theme.colorScheme.onSurface.withOpacity(0.6),
+                  ),
+                ),
+              );
+            }
+
+            return ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              itemCount: places.length,
+              itemBuilder: (context, index) => _buildSavedPlaceTile(places[index]),
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSavedPlaceTile(SavedPlace place) {
+    final iconData = _getIconForPlace(place.icon);
+    final iconBgColor = Colors.grey.shade200;
+    final iconColor = Colors.grey.shade800;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: iconBgColor,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(iconData, color: iconColor, size: 20),
+        ),
+        title: Text(
+          place.name,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          place.address,
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
+        ),
+        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+        onTap: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Editing for ${place.name} coming soon!')),
+          );
+        },
+      ),
+    );
+  }
+
+  IconData _getIconForPlace(String iconName) {
+    switch (iconName.toLowerCase()) {
+      case 'home':
+        return Icons.home_outlined;
+      case 'work':
+        return Icons.work_outline;
+      default:
+        return Icons.location_on_outlined;
+    }
+  }
+
+  Future<void> _shareProfile() async {
+    final user = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
+    if (user == null) return;
+
+    final profileLink = DeepLinkService.generateProfileLink(user.uid);
+    final message = 'Check out my profile on GroupSharing! $profileLink';
+    await Share.share(message);
+  }
+
+  void _showImagePickerOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.photo_library_outlined),
+                  title: const Text('Choose from gallery'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickImage(ImageSource.gallery);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.camera_alt_outlined),
+                  title: const Text('Take a photo'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickImage(ImageSource.camera);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: source,
+        imageQuality: 80,
+        maxWidth: 800,
+      );
+
+      if (pickedFile != null) {
+        setState(() {
+          _imageFile = File(pickedFile.path);
+          _isLoading = true;
+        });
+        await _uploadAndUpdateProfile();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error picking image: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _uploadAndUpdateProfile() async {
+    if (_imageFile == null) return;
+
+    final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+    final userId = authProvider.user!.uid;
+    final ref = FirebaseStorage.instance.ref().child('user_photos').child('$userId.jpg');
+
+    try {
+      final uploadTask = ref.putFile(_imageFile!);
+      final snapshot = await uploadTask.whenComplete(() {});
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+
+      await authProvider.user!.updatePhotoURL(downloadUrl);
+      await authProvider.user!.reload();
+
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile picture updated successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update profile picture: $e')),
+        );
+      }
+    }
+  }
+
+  // _getJoinedDate method removed as it's no longer used
 }

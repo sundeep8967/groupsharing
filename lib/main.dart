@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:groupsharing/widgets/app_map_widget.dart';
+import 'package:groupsharing/services/deep_link_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/location_provider.dart';
 import 'screens/auth/login_screen.dart';
@@ -12,6 +13,9 @@ import 'screens/onboarding/onboarding_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  
+  // Initialize deep links
+  DeepLinkService.initDeepLinks();
   
   // Check if onboarding is completed
   final prefs = await SharedPreferences.getInstance();

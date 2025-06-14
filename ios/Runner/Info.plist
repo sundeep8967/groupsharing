@@ -47,6 +47,27 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>This app needs access to location when open to share your location with friends.</string>
+	<!-- URL Scheme for deep linking -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.sundeep.groupsharing</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>groupsharing</string>
+			</array>
+		</dict>
+	</array>
+	
+	<!-- Associated Domains for Universal Links -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:yourappdomain.com</string>
+	</array>
+	
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>This app needs access to location when in the background to share your location with friends.</string>
 	<key>CFBundleURLTypes</key>
