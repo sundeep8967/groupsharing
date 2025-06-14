@@ -1,19 +1,20 @@
-import 'dart:math';
 import 'dart:async';
+import 'dart:math';
 import 'dart:ui';
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart' as FMTC;
-import 'package:flutter_map_animations/flutter_map_animations.dart';
-import 'package:latlong2/latlong.dart' as latlong;
-import 'package:sensors_plus/sensors_plus.dart';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:groupsharing/models/map_marker.dart';
-import '../../providers/auth_provider.dart' as app_auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_animations/flutter_map_animations.dart';
+import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart' as fmtc;
+import 'package:latlong2/latlong.dart' as latlong;
+import 'package:provider/provider.dart';
+import 'package:sensors_plus/sensors_plus.dart';
+
+import '../../models/map_marker.dart';
+import '../../providers/auth_provider.dart' as app_auth;
 
 class _Debouncer {
   final Duration delay;
@@ -55,6 +56,36 @@ enum _MapTheme { light, dark }
 
 class _ModernMapState extends State<ModernMap>
     with WidgetsBindingObserver, TickerProviderStateMixin {
+  final List<Map<String, dynamic>> rideTypes = [
+    {
+      'type': 'UberX',
+      'price': '\$24-30',
+      'time': '3 min',
+      'icon': Icons.directions_car,
+      'color': Colors.blue,
+    },
+    {
+      'type': 'UberXL',
+      'price': '\$31-37',
+      'time': '5 min',
+      'icon': Icons.airport_shuttle,
+      'color': Colors.blue[800],
+    },
+    {
+      'type': 'Comfort',
+      'price': '\$28-34',
+      'time': '4 min',
+      'icon': Icons.airline_seat_recline_normal,
+      'color': Colors.black,
+    },
+    {
+      'type': 'Uber Black',
+      'price': '\$45-52',
+      'time': '7 min',
+      'icon': Icons.directions_car,
+      'color': Colors.black,
+    },
+  ];
   late final AnimatedMapController _animatedMapController;
   MapController get _mapController => _animatedMapController.mapController;
   _MapTheme _currentTheme = _MapTheme.light;
@@ -79,7 +110,7 @@ class _ModernMapState extends State<ModernMap>
     _cachedMarkers = [];
     _startMagnetometer();
     WidgetsBinding.instance.addObserver(this);
-    FMTC.FMTCStore('mainCache').manage.create();
+    fmtc.FMTCStore('mainCache').manage.create();
   }
 
   void _rebuildMarkerCache() {
@@ -151,19 +182,15 @@ class _ModernMapState extends State<ModernMap>
       );
     } catch (e) {
       debugPrint('Error initializing magnetometer: $e');
-      _hasMagnetometer = false;
+      if (mounted) {
+        setState(() {
+          _hasMagnetometer = false;
+        });
+      }
     }
   }
 
-  String get _tileUrl {
-    if (_currentTheme == _MapTheme.dark) {
-      // CartoDB Dark Matter (blue water) - supports high zoom levels
-      return 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png';
-    } else {
-      // OpenStreetMap's standard tile layer - more reliable for high zoom levels
-      return 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-    }
-  }
+  // Tile URLs are now defined inline in the TileLayer widgets
 
   List<Marker> _buildAllMarkers() {
     final markers = <Marker>[];
@@ -240,11 +267,11 @@ class _ModernMapState extends State<ModernMap>
         clipBehavior: Clip.antiAlias,
         child: Stack(
           children: [
+            // Map
             FlutterMap(
-              key: const ValueKey('map_widget'), // Remove initialPosition from the key
               mapController: _mapController,
               options: MapOptions(
-                initialCenter: widget.initialPosition,
+                initialCenter: widget.userLocation ?? const latlong.LatLng(0, 0),
                 initialZoom: 15,
                 minZoom: 2,
                 maxZoom: 19,
@@ -270,41 +297,93 @@ class _ModernMapState extends State<ModernMap>
                 },
               ),
               children: [
-                // Primary tile layer with OSM's recommended configuration
+                // Uber-like map style with dark/light theme support
                 TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  urlTemplate: _currentTheme == _MapTheme.dark
+                      ? 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}@2x.png'  // Dark base map without labels
+                      : 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png', // Light base map without labels
+                  subdomains: const ['a', 'b', 'c'],
                   userAgentPackageName: 'com.example.groupsharing',
-                  maxZoom: 19,
+                  maxZoom: 20,
                   minZoom: 2,
                   retinaMode: MediaQuery.of(context).devicePixelRatio > 1.0,
-                  tileProvider: FMTC.FMTCStore('mainCache').getTileProvider(),
+                  tileProvider: fmtc.FMTCStore('mainCache').getTileProvider(),
                   errorTileCallback: (TileImage tile, Object error, StackTrace? stackTrace) {
                     debugPrint('Tile error at ${tile.coordinates}: $error');
                   },
                 ),
-                // Fallback tile layer (simpler, more reliable)
+                // Add road and label layers for better readability
                 TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  maxZoom: 19,
+                  urlTemplate: _currentTheme == _MapTheme.dark
+                      ? 'https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png'  // Dark labels
+                      : 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}@2x.png', // Light labels
+                  subdomains: const ['a', 'b', 'c'],
+                  userAgentPackageName: 'com.example.groupsharing',
+                  maxZoom: 20,
                   minZoom: 2,
-                  tileBuilder: (context, widget, tile) {
-                    return Opacity(
-                      opacity: 0.7,
-                      child: widget,
-                    );
-                  },
                 ),
                 MarkerLayer(
                   markers: _cachedMarkers,
                 ),
+                
+                // Current location marker
+                if (widget.userLocation != null)
+                  MarkerLayer(
+                    markers: [
+                      Marker(
+                        width: 40,
+                        height: 40,
+                        point: widget.userLocation!,
+                        child: const Icon(Icons.location_on, color: Colors.blue, size: 40),
+                      ),
+                    ],
+                  ),
               ],
             ),
+            
+            // Top search bar
             Positioned(
-              top: 16,
-              left: 16,
-              right: 16,
-              child: _SearchBar(onSubmitted: (q) {}),
+              top: MediaQuery.of(context).padding.top + 10,
+              left: 20,
+              right: 20,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    const BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 10,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Where to?',
+                    prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                  ),
+                ),
+              ),
             ),
+            
+            // Current location button
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 80,
+              right: 15,
+              child: FloatingActionButton(
+                heroTag: 'location',
+                mini: true,
+                backgroundColor: Colors.white,
+                onPressed: () {
+                  _mapController.move(widget.userLocation ?? const latlong.LatLng(0, 0), 15);
+                },
+                child: const Icon(Icons.my_location, color: Colors.black87),
+              ),
+            ),
+            
             Positioned(
               bottom: 16,
               right: 16,
@@ -443,6 +522,32 @@ class _ModernMapState extends State<ModernMap>
   }
 }
 
+class _SearchBar extends StatelessWidget {
+  final void Function(String) onSubmitted;
+  const _SearchBar({required this.onSubmitted});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final size = MediaQuery.of(context).size;
+    return Material(
+      color: theme.cardColor,
+      elevation: 2,
+      borderRadius: BorderRadius.circular(8),
+      child: TextField(
+        decoration: const InputDecoration(
+          hintText: 'Search place…',
+          border: InputBorder.none,
+          prefixIcon: Icon(Icons.search),
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        ),
+        textInputAction: TextInputAction.search,
+        onSubmitted: onSubmitted,
+      ),
+    );
+  }
+}
+
 class _UserLocationMarker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -479,30 +584,6 @@ class _UserLocationMarker extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _SearchBar extends StatelessWidget {
-  final void Function(String) onSubmitted;
-  const _SearchBar({required this.onSubmitted});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Theme.of(context).cardColor,
-      elevation: 2,
-      borderRadius: BorderRadius.circular(8),
-      child: TextField(
-        decoration: const InputDecoration(
-          hintText: 'Search place…',
-          border: InputBorder.none,
-          prefixIcon: Icon(Icons.search),
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-        ),
-        textInputAction: TextInputAction.search,
-        onSubmitted: onSubmitted,
-      ),
     );
   }
 }
