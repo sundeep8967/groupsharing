@@ -2,7 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../services/auth_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:math';
+// import 'dart:math'; // No longer needed here
 
 class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
@@ -30,21 +30,45 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
       final user = _user;
       if (user != null) {
+        // Add print statement here
+        print('[TESTING] User signed in with Google. User ID: ${user.uid}. Checking/generating friend code...');
         final userDoc = FirebaseFirestore.instance.collection('users').doc(user.uid);
-        print('Writing user doc for \\${user.uid}');
+        // Remove old print
+        // print('Writing user doc for \\${user.uid}');
         final docSnap = await userDoc.get();
+        // Add print statement here
+        print('[TESTING] Firestore docSnap for Google user: ${docSnap.data()}');
         String? friendCode = docSnap.data()?['friendCode'];
+        bool generatedNewCode = false;
         if (friendCode == null || friendCode.length != 6) {
-          friendCode = await _generateUniqueFriendCode();
+          friendCode = await _authService.generateUniqueFriendCode(); // Changed to use AuthService
+          generatedNewCode = true;
+          // Add print statement here
+          print('[TESTING] Generated/obtained friendCode for Google user: $friendCode');
+        } else {
+          // Add print statement here
+          print('[TESTING] Existing valid friendCode found for Google user: $friendCode');
         }
-        await userDoc.set({
+
+        Map<String, dynamic> userDataToSet = {
           'email': user.email,
           'displayName': user.displayName,
           'photoUrl': user.photoURL,
-          'friendCode': friendCode,
+          'friendCode': friendCode, // This is the determined friendCode
           'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-        print('User doc written');
+        };
+
+        if (!docSnap.exists) {
+          userDataToSet['createdAt'] = FieldValue.serverTimestamp();
+        }
+
+        // Updated print statement to reflect actual data being set (excluding non-serializable FieldValue for direct printing if needed)
+        // For logging, it's often better to log the map before FieldValue is applied if you need to see the structure.
+        // However, for this test, we'll log it as is, understanding FieldValue won't be directly visible.
+        print('[TESTING] Saving/updating Google user data to Firestore. Data being set: $userDataToSet');
+
+        await userDoc.set(userDataToSet, SetOptions(merge: true));
+        // print('User doc written'); // Or keep the [TESTING] print - keeping the TESTING one for now
       }
     } catch (e) {
       print('Google sign in error: \\${e.toString()}');
@@ -76,17 +100,5 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  Future<String> _generateUniqueFriendCode() async {
-    final db = FirebaseFirestore.instance.collection('users');
-    String code;
-    bool exists = true;
-    final rand = Random();
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    do {
-      code = List.generate(6, (_) => chars[rand.nextInt(chars.length)]).join();
-      final query = await db.where('friendCode', isEqualTo: code).limit(1).get();
-      exists = query.docs.isNotEmpty;
-    } while (exists);
-    return code;
-  }
+  // _generateUniqueFriendCode method removed
 }

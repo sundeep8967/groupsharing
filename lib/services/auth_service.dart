@@ -1,3 +1,4 @@
+import 'dart:math'; // Added for Random
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -25,6 +26,39 @@ class AuthService {
         email: email,
         password: password,
       );
+
+      if (userCredential.user != null) {
+        String userId = userCredential.user!.uid;
+        // Add print statement here
+        print('[TESTING] User signed in with email. User ID: $userId. Checking friend code...');
+        DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
+
+        String? friendCode;
+        if (userDoc.exists) {
+          // Attempt to get the friend code
+          try {
+            friendCode = (userDoc.data() as Map<String, dynamic>)['friendCode'] as String?;
+          } catch (e) {
+            // Field might not exist or is not a string, treat as missing
+            friendCode = null;
+          }
+        }
+
+        if (friendCode == null || friendCode.length != 6) {
+          // If friend code is missing or invalid, generate and save a new one
+          print('[TESTING] friendCode missing or invalid. Current value: $friendCode. Generating new one...');
+          String newFriendCode = await generateUniqueFriendCode();
+          print('[TESTING] Generated new friendCode for existing user: $newFriendCode');
+          // Add print statement here
+          print('[TESTING] Updating user $userId with new friendCode: $newFriendCode');
+          await _firestore.collection('users').doc(userId).update({
+            'friendCode': newFriendCode,
+          });
+        } else {
+          // Add print statement here
+          print('[TESTING] Existing valid friendCode found: $friendCode');
+        }
+      }
       return userCredential;
     } catch (e) {
       throw _handleAuthException(e);
@@ -38,6 +72,8 @@ class AuthService {
     String displayName,
   ) async {
     try {
+      // Add print statement here
+      print('[TESTING] Registering new user. displayName: $displayName. Generating friend code...');
       final UserCredential userCredential = 
           await _auth.createUserWithEmailAndPassword(
         email: email,
@@ -46,7 +82,14 @@ class AuthService {
 
       // Create user document in Firestore
       if (userCredential.user != null) {
-        await _createUserDocument(userCredential.user!, displayName);
+        String newFriendCode = await generateUniqueFriendCode(); // generateUniqueFriendCode is now public
+        // Add print statement here
+        print('[TESTING] Generated friendCode for new user: $newFriendCode');
+        await _createUserDocument(
+          userCredential.user!,
+          displayName,
+          friendCode: newFriendCode
+        );
       }
 
       return userCredential;
@@ -99,14 +142,48 @@ class AuthService {
   }
 
   // Create user document in Firestore
-  Future<void> _createUserDocument(User user, String displayName) async {
+  Future<void> _createUserDocument(User user, String displayName, {String? friendCode}) async {
+    // Add print statement here
+    print('[TESTING] _createUserDocument called. User ID: ${user.uid}, DisplayName: $displayName, FriendCode: $friendCode');
     final UserModel newUser = UserModel(
       id: user.uid,
       email: user.email!,
       displayName: displayName,
+      photoUrl: user.photoURL, // Add photoUrl from the Firebase User object
     );
 
-    await _firestore.collection('users').doc(user.uid).set(newUser.toMap());
+    Map<String, dynamic> userData = newUser.toMap();
+
+    if (friendCode != null) {
+      userData['friendCode'] = friendCode;
+    }
+
+    // Add/update timestamps
+    userData['createdAt'] = FieldValue.serverTimestamp();
+    userData['updatedAt'] = FieldValue.serverTimestamp();
+
+    // Add print statement here
+    print('[TESTING] Saving new user to Firestore. Data: $userData');
+    await _firestore.collection('users').doc(user.uid).set(userData);
+  }
+
+  // Generate a unique friend code
+  Future<String> generateUniqueFriendCode() async {
+    // Add print statement here
+    print('[TESTING] generateUniqueFriendCode called.');
+    String code;
+    bool exists = true;
+    final rand = Random();
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    do {
+      code = List.generate(6, (_) => chars[rand.nextInt(chars.length)]).join();
+      // Use the existing _firestore instance
+      final query = await _firestore.collection('users').where('friendCode', isEqualTo: code).limit(1).get();
+      exists = query.docs.isNotEmpty;
+    } while (exists);
+    // Add print statement here
+    print('[TESTING] Unique friendCode generated: $code');
+    return code;
   }
 
   // Handle authentication exceptions

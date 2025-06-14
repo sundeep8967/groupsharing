@@ -8,6 +8,9 @@ class UserModel {
   final String? photoUrl;
   final LatLng? lastLocation;
   final DateTime? lastSeen;
+  final String? friendCode; // New
+  final DateTime? createdAt;  // New
+  final DateTime? updatedAt;  // New
 
   UserModel({
     required this.id,
@@ -16,6 +19,9 @@ class UserModel {
     this.photoUrl,
     this.lastLocation,
     this.lastSeen,
+    this.friendCode, // New
+    this.createdAt,  // New
+    this.updatedAt,  // New
   });
 
   Map<String, dynamic> toMap() {
@@ -27,7 +33,10 @@ class UserModel {
       'lastLocation': lastLocation != null
           ? GeoPoint(lastLocation!.latitude, lastLocation!.longitude)
           : null,
-      'lastSeen': lastSeen,
+      'lastSeen': lastSeen, // Stays as DateTime, Firestore converts to Timestamp
+      'friendCode': friendCode, // New
+      'createdAt': createdAt,   // New
+      'updatedAt': updatedAt,   // New
     };
   }
 
@@ -43,6 +52,9 @@ class UserModel {
           ? LatLng(geoPoint.latitude, geoPoint.longitude)
           : null,
       lastSeen: (map['lastSeen'] as Timestamp?)?.toDate(),
+      friendCode: map['friendCode'] as String?, // New
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate(), // New
+      updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(), // New
     );
   }
 }
