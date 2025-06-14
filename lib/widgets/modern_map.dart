@@ -229,27 +229,13 @@ class _ModernMapState extends State<ModernMap>
   @override
   void didUpdateWidget(ModernMap oldWidget) {
     super.didUpdateWidget(oldWidget);
-    
-    // If user location changed, update the map position
-    if (widget.userLocation != null && 
-        (oldWidget.userLocation == null || 
-         widget.userLocation!.latitude != oldWidget.userLocation!.latitude ||
-         widget.userLocation!.longitude != oldWidget.userLocation!.longitude)) {
-      // Only move the map if it's not currently being interacted with
-      if (!_isUserInteracting) {
-        _mapController.move(widget.userLocation!, _mapController.camera.zoom);
-      }
-    }
-    
+    // Only recenter if user explicitly requests (not on every update)
+    // Remove auto-move on userLocation update
     // Rebuild markers if needed
     if (oldWidget.markers != widget.markers) {
       _rebuildMarkerCache();
     }
-    
-    // Call the parent's didUpdateWidget if needed
-    if (oldWidget.key != widget.key ||
-        oldWidget.initialPosition != widget.initialPosition) {
-      // Reset the map position if the initial position changed
+    if (oldWidget.key != widget.key || oldWidget.initialPosition != widget.initialPosition) {
       _mapController.move(widget.initialPosition, _mapController.camera.zoom);
     }
   }
@@ -431,36 +417,19 @@ class _ModernMapState extends State<ModernMap>
           final photoUrl = data?['photoUrl'];
           final displayName = data?['displayName'] ?? '';
           if (photoUrl != null && photoUrl.isNotEmpty) {
-            return AnimatedScale(
-              scale: 1.0,
-              duration: const Duration(milliseconds: 200),
-              child: Material(
-                elevation: 4,
-                shape: const CircleBorder(),
-                child: CircleAvatar(
-                  radius: 22,
-                  backgroundImage: CachedNetworkImageProvider(photoUrl, cacheKey: 'profile_${m.id}'),
-                  backgroundColor: Colors.white,
-                ),
-              ),
+            return CircleAvatar(
+              radius: 22,
+              backgroundImage: CachedNetworkImageProvider(photoUrl, cacheKey: 'profile_${m.id}'),
+              backgroundColor: Colors.white,
             );
           } else {
             // Fallback: colored initial
-            return AnimatedScale(
-              scale: 1.0,
-              duration: const Duration(milliseconds: 200),
-              child: Material(
-                elevation: 4,
-                shape: const CircleBorder(),
-                color: Colors.blueAccent,
-                child: CircleAvatar(
-                  radius: 22,
-                  backgroundColor: Colors.blueAccent,
-                  child: Text(
-                    displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-                    style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                ),
+            return CircleAvatar(
+              radius: 22,
+              backgroundColor: Colors.blueAccent,
+              child: Text(
+                displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold),
               ),
             );
           }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -14,6 +16,8 @@ class AddFriendsScreen extends StatefulWidget {
 class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   late TabController _tabController;
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _isSearching = false;
   
   @override
   void initState() {
@@ -23,19 +27,131 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchController.dispose();
     _tabController.dispose();
     super.dispose();
   }
 
-  Future<void> _sendFriendRequest(String targetEmailOrName) async {
+  Timer? _debounce;
+
+  Future<void> _searchFriends(String query) async {
+    if (query.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _isSearching = false;
+          _searchResults = [];
+        });
+      }
+      return;
+    }
+
+    // Cancel previous debounce timer
+    _debounce?.cancel();
+
+    // Set a new timer for debouncing
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
+      if (!mounted) return;
+      
+      setState(() {
+        _isSearching = true;
+      });
+
+      try {
+        final user = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
+        if (user == null || !mounted) return;
+
+        final db = FirebaseFirestore.instance;
+        
+        // Query for name matches
+        final nameQuery = await db
+            .collection('users')
+            .where('name', isGreaterThanOrEqualTo: query)
+            .where('name', isLessThanOrEqualTo: query + '\uf8ff')
+            .limit(10)
+            .get();
+            
+        // Query for email matches
+        final emailQuery = await db
+            .collection('users')
+            .where('email', isGreaterThanOrEqualTo: query)
+            .where('email', isLessThanOrEqualTo: query + '\uf8ff')
+            .limit(10)
+            .get();
+
+        if (!mounted) return;
+
+        // Combine and deduplicate results
+        final allDocs = <String, dynamic>{};
+        
+        for (var doc in nameQuery.docs) {
+          allDocs[doc.id] = doc;
+        }
+        
+        for (var doc in emailQuery.docs) {
+          allDocs[doc.id] = doc;
+        }
+
+        final results = allDocs.values
+            .where((doc) => doc.id != user.uid) // Exclude current user
+            .map<Map<String, dynamic>>((doc) => {
+                  'id': doc.id,
+                  ...doc.data(),
+                  'name': doc['name']?.toString() ?? 'No name',
+                  'email': doc['email']?.toString() ?? 'No email',
+                })
+            .toList();
+
+        if (mounted) {
+          setState(() {
+            _searchResults = results;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error searching: ${e.toString()}')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isSearching = false;
+          });
+        }
+      }
+    });
+  }
+
+  Future<void> _sendFriendRequest(String targetEmailOrCode) async {
     final user = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
     if (user == null) return;
     final db = FirebaseFirestore.instance;
-    // Find user by email or name
-    final query = await db.collection('users')
-      .where('email', isEqualTo: targetEmailOrName)
-      .get();
+    QuerySnapshot query;
+    try {
+      if (RegExp(r'^[A-Z0-9]{6}$').hasMatch(targetEmailOrCode)) {
+        // Search by friend code
+        query = await db.collection('users')
+          .where('friendCode', isEqualTo: targetEmailOrCode.toUpperCase())
+          .get();
+      } else {
+        // Search by email (case-insensitive)
+        query = await db.collection('users')
+          .where('email', isEqualTo: targetEmailOrCode.toLowerCase())
+          .get();
+        if (query.docs.isEmpty) {
+          // Try again with original case (for legacy data)
+          query = await db.collection('users')
+            .where('email', isEqualTo: targetEmailOrCode)
+            .get();
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error searching: $e')),
+      );
+      return;
+    }
     final docs = query.docs;
     if (docs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -48,6 +164,15 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
     if (targetUserId == user.uid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('You cannot add yourself.')),
+      );
+      return;
+    }
+    // Check if already friends
+    final userDoc = await db.collection('users').doc(user.uid).get();
+    final List friends = userDoc.data()?['friends'] ?? [];
+    if (friends.contains(targetUserId)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Already friends!')),
       );
       return;
     }
@@ -196,6 +321,90 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
     );
   }
 
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: TextField(
+        controller: _searchController,
+        decoration: InputDecoration(
+          hintText: 'Search by name or email',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchController.clear();
+                    _searchFriends('');
+                  },
+                )
+              : null,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(30),
+            borderSide: BorderSide.none,
+          ),
+          filled: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
+        ),
+        onChanged: (value) {
+          _searchFriends(value);
+        },
+      ),
+    );
+  }
+
+  Widget _buildSearchResults() {
+    if (!_isSearching && _searchResults.isEmpty) return const SizedBox.shrink();
+    
+    return Column(
+      children: [
+        if (_isSearching)
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_searchResults.isEmpty)
+          _buildEmptyState('No users found')
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _searchResults.length,
+            itemBuilder: (context, index) {
+              final user = _searchResults[index];
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Theme.of(context).primaryColor.withOpacity(0.2),
+                  child: Text(
+                    (user['name']?.toString().isNotEmpty ?? false) 
+                        ? user['name'].toString().substring(0, 1).toUpperCase() 
+                        : '?',
+                    style: TextStyle(
+                      color: Theme.of(context).primaryColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                title: Text(user['name']?.toString() ?? 'No name'),
+                subtitle: Text(user['email']?.toString() ?? ''),
+                trailing: ElevatedButton(
+                  onPressed: () => _sendFriendRequest(user['email']?.toString() ?? ''),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
+                  child: const Text('Add'),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
@@ -222,65 +431,94 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
             unselectedLabelColor: colorScheme.onSurfaceVariant,
             indicatorColor: colorScheme.primary,
             tabs: const [
-              Tab(text: 'Received'),
+              Tab(text: 'Requests'),
               Tab(text: 'Sent'),
             ],
           ),
         ),
-        body: TabBarView(
-          controller: _tabController,
+        body: Column(
           children: [
-            // Received Requests
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('friend_requests')
-                  .where('to', isEqualTo: user.uid)
-                  .where('status', isEqualTo: 'pending')
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final docs = snapshot.data!.docs;
-                if (docs.isEmpty) {
-                  return _buildEmptyState('No friend requests received yet.');
-                }
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: docs.length,
-                  itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
-                    final requestId = docs[index].id;
-                    return _buildRequestItem(data, requestId, isReceived: true);
-                  },
-                );
-              },
-            ),
-            // Sent Requests
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('friend_requests')
-                  .where('from', isEqualTo: user.uid)
-                  .where('status', isEqualTo: 'pending')
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final docs = snapshot.data!.docs;
-                if (docs.isEmpty) {
-                  return _buildEmptyState('No pending friend requests.');
-                }
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: docs.length,
-                  itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
-                    final requestId = docs[index].id;
-                    return _buildRequestItem(data, requestId, isReceived: false);
-                  },
-                );
-              },
+            _buildSearchBar(),
+            if (_isSearching) _buildSearchResults()
+            else Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  // Received Requests
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('friend_requests')
+                        .where('to', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+                        .where('status', isEqualTo: 'pending')
+                        .orderBy('timestamp', descending: true)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      final docs = snapshot.data!.docs;
+                      if (docs.isEmpty) {
+                        return _buildEmptyState('No requests');
+                      }
+                      return ListView.builder(
+                        itemCount: docs.length,
+                        itemBuilder: (context, index) {
+                          final request = docs[index].data() as Map<String, dynamic>;
+                          return _buildRequestItem(
+                            {
+                              'from': docs[index]['from'],
+                              'name': request['fromName'] ?? 'Unknown User',
+                              'username': request['fromEmail'] ?? '',
+                              'time': request['timestamp'] != null
+                                  ? '${DateTime.now().difference((request['timestamp'] as Timestamp).toDate()).inHours} hours ago'
+                                  : '',
+                              'avatar': request['fromName']?.substring(0, 1).toUpperCase() ?? '?',
+                            },
+                            docs[index].id,
+                          );
+                        },
+                      );
+                    },
+                  ),
+                  // Sent requests tab
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('friend_requests')
+                        .where('from', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+                        .orderBy('timestamp', descending: true)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      final docs = snapshot.data!.docs;
+                      if (docs.isEmpty) {
+                        return _buildEmptyState('No sent requests');
+                      }
+                      return ListView.builder(
+                        itemCount: docs.length,
+                        itemBuilder: (context, index) {
+                          final request = docs[index].data() as Map<String, dynamic>;
+                          return _buildRequestItem(
+                            {
+                              'from': docs[index]['to'],
+                              'name': request['toName'] ?? 'Unknown User',
+                              'username': request['toEmail'] ?? '',
+                              'time': request['timestamp'] != null
+                                  ? '${DateTime.now().difference((request['timestamp'] as Timestamp).toDate()).inHours} hours ago'
+                                  : '',
+                              'avatar': request['toName']?.substring(0, 1).toUpperCase() ?? '?',
+                              'status': request['status'] ?? 'pending',
+                            },
+                            docs[index].id,
+                            isReceived: false,
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
           ],
         ),

@@ -87,7 +87,7 @@ class LocationService {
       );
       final initialLatLng = LatLng(initialPosition.latitude, initialPosition.longitude);
       onLocationUpdate(initialLatLng);
-      await updateUserLocation(userId, initialPosition);
+      await updateUserLocation(userId, initialLatLng);
     } catch (e) {
       print('Error getting initial position: $e');
     }
@@ -106,9 +106,9 @@ class LocationService {
       final latLng = LatLng(position.latitude, position.longitude);
       onLocationUpdate(latLng);
       // Update user's location in Firestore
-      await updateUserLocation(userId, position);
-      // Save location history
-      await saveLocationHistory(userId, position);
+      await updateUserLocation(userId, latLng);
+      // Remove location history write
+      // await saveLocationHistory(userId, position);
       // Also send device info and battery status
       await sendDeviceAndBatteryInfo(userId);
     });
@@ -123,18 +123,15 @@ class LocationService {
   }
 
   // Update user's current location
-  Future<void> updateUserLocation(String userId, Position position) async {
-    try {
-      await _firestore.collection('users').doc(userId).set({
-        'lastLocation': GeoPoint(position.latitude, position.longitude),
-        'lastSeen': FieldValue.serverTimestamp(),
-        'locationUpdatedAt': FieldValue.serverTimestamp(),
-        'locationAccuracy': position.accuracy,
-      }, SetOptions(merge: true));
-    } catch (e) {
-      developer.log('Error updating user location', error: e);
-      rethrow;
-    }
+  Future<void> updateUserLocation(String userId, LatLng location) async {
+    await FirebaseFirestore.instance.collection('users').doc(userId).update({
+      'location': {
+        'lat': location.latitude,
+        'lng': location.longitude,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      'lastOnline': FieldValue.serverTimestamp(),
+    });
   }
 
   // Save location to history
