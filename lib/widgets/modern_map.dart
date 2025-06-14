@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart' as FMTC;
 import 'package:flutter_map_animations/flutter_map_animations.dart';
 import 'package:latlong2/latlong.dart' as latlong;
 import 'package:sensors_plus/sensors_plus.dart';
@@ -78,6 +79,7 @@ class _ModernMapState extends State<ModernMap>
     _cachedMarkers = [];
     _startMagnetometer();
     WidgetsBinding.instance.addObserver(this);
+    FMTC.FMTCStore('mainCache').manage.create();
   }
 
   @override
@@ -161,9 +163,12 @@ class _ModernMapState extends State<ModernMap>
     }
   }
 
-  String get _tileUrl => _currentTheme == _MapTheme.dark
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
-      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png';
+  String get _tileUrl =>
+      _currentTheme == _MapTheme.dark
+          // CartoDB Dark Matter (blue water)
+          ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
+          // CartoDB Positron (light, blue water)
+          : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png';
 
   List<Marker> _buildAllMarkers() {
     final markers = <Marker>[];
@@ -237,7 +242,7 @@ class _ModernMapState extends State<ModernMap>
                   maxZoom: 19,
                   minZoom: 2,
                   retinaMode: MediaQuery.of(context).devicePixelRatio > 1.0,
-                  tileProvider: NetworkTileProvider(),
+                  tileProvider: FMTC.FMTCStore('mainCache').getTileProvider(),
                   // Add error handling for tiles
                   errorTileCallback: (tile, error, stackTrace) {
                     debugPrint('Tile error: $error');

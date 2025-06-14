@@ -10,9 +10,15 @@ import 'providers/location_provider.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/main/main_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
+import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await FMTCObjectBoxBackend().initialise();
+  } catch (error, stackTrace) {
+    // Optionally log or handle FMTC initialization errors
+  }
   await Firebase.initializeApp();
   
   // Initialize deep links

@@ -1,6 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../services/auth_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:math';
 
 class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
@@ -74,9 +76,33 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
       
       await _authService.signInWithGoogle();
+
+      // After successful sign-in, ensure friendCode is set and unique
+      final userDoc = FirebaseFirestore.instance.collection('users').doc(user!.uid);
+      final docSnap = await userDoc.get();
+      String? friendCode = docSnap.data()?['friendCode'];
+      if (friendCode == null || friendCode.length != 6) {
+        // Generate a unique 6-digit code
+        friendCode = await _generateUniqueFriendCode();
+        await userDoc.set({'friendCode': friendCode}, SetOptions(merge: true));
+      }
     } finally {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  Future<String> _generateUniqueFriendCode() async {
+    final db = FirebaseFirestore.instance.collection('users');
+    String code;
+    bool exists = true;
+    final rand = Random();
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    do {
+      code = List.generate(6, (_) => chars[rand.nextInt(chars.length)]).join();
+      final query = await db.where('friendCode', isEqualTo: code).limit(1).get();
+      exists = query.docs.isNotEmpty;
+    } while (exists);
+    return code;
   }
 }

@@ -11,6 +11,7 @@ import '../../services/firebase_service.dart';
 import '../../services/deep_link_service.dart';
 import '../../models/saved_place.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/services.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -138,6 +139,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final fullName = data?['displayName'] ?? user?.displayName ?? 'User';
         final email = data?['email'] ?? user?.email ?? '';
         final photoUrl = data?['photoUrl'] ?? user?.photoURL;
+        final friendCode = data?['friendCode'] ?? '';
         final TextEditingController nameController = TextEditingController(text: fullName);
         return StatefulBuilder(
           builder: (context, setState) {
@@ -288,6 +290,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
+                        if (friendCode.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Text(
+                                'Code: $friendCode',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: colorScheme.primary,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.copy, size: 16),
+                                tooltip: 'Copy code',
+                                onPressed: () {
+                                  Clipboard.setData(ClipboardData(text: friendCode));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Friend code copied!')),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -477,8 +504,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
     if (user == null) return;
 
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    final friendCode = userDoc.data()?['friendCode'] ?? '';
     final profileLink = DeepLinkService.generateProfileLink(user.uid);
-    final message = 'Check out my profile on GroupSharing! $profileLink';
+    final message = 'Check out my profile on GroupSharing!\nFriend code: $friendCode\n$profileLink';
     await Share.share(message);
   }
 
