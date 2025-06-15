@@ -534,12 +534,8 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
                     },
                   ),
                   // Sent requests tab
-                  StreamBuilder<QuerySnapshot>( // This tab is NOT refactored in this step
-                    stream: FirebaseFirestore.instance
-                        .collection('friend_requests') // Kept original logic
-                        .where('from', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
-                        .orderBy('timestamp', descending: true)
-                        .snapshots(),
+                  StreamBuilder<List<FriendshipModel>>( // Refactored to use List<FriendshipModel>
+                    stream: _friendService.getSentRequests(FirebaseAuth.instance.currentUser!.uid), // Changed stream
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return const Center(child: CircularProgressIndicator());
@@ -547,21 +543,15 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
                       if (snapshot.hasError) {
                         return _buildEmptyState('Error: ${snapshot.error}');
                       }
-                      if (!snapshot.hasData) {
-                        return _buildEmptyState('No sent requests');
-                      }
-                      final requests = snapshot.data!;
-                      if (requests.docs.isEmpty) {
+                      // snapshot.data is now List<FriendshipModel>?
+                      final sentRequests = snapshot.data;
+                      if (sentRequests == null || sentRequests.isEmpty) {
                         return _buildEmptyState('No sent requests');
                       }
                       return ListView.builder(
-                        itemCount: requests.docs.length,
+                        itemCount: sentRequests.length, // Use length of the list
                         itemBuilder: (context, index) {
-                          final doc = requests.docs[index];
-                          final friendship = FriendshipModel.fromMap(
-                            doc.data() as Map<String, dynamic>,
-                            doc.id,
-                          );
+                          final friendship = sentRequests[index]; // Directly use the model
                           return _buildRequestItem(friendship, isReceived: false);
                         },
                       );

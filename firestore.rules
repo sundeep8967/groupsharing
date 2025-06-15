@@ -3,26 +3,61 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Existing rules for 'users' collection (assuming they are secure)
-    // Example:
-    // match /users/{userId} {
-    //   allow read: if request.auth != null;
-    //   allow write: if request.auth.uid == userId;
-    //   // Add more granular rules for specific fields if needed
-    // }
+    // Helper function to check if a string is a valid UID (basic check)
+    function isValidUid(uid) {
+      return uid is string && uid.size() > 0;
+    }
 
-    // Rules for 'friend_requests' collection
+    match /users/{userId} {
+      // READ: Any authenticated user can read user profiles.
+      // This allows users to find each other by friendCode or email, and view profiles.
+      allow read: if request.auth != null;
+
+      // CREATE: A user can create their own user document.
+      // - Ensure the data being written contains essential fields.
+      // - 'friendCode' should be provided and validated (e.g., specific length).
+      // - 'createdAt' and 'updatedAt' should be server timestamps.
+      // - 'friends' list must exist and be empty initially.
+      allow create: if request.auth.uid == userId &&
+                       isValidUid(request.auth.uid) &&
+                       request.resource.data.email == request.auth.token.email &&
+                       request.resource.data.friendCode is string &&
+                       request.resource.data.friendCode.size() == 6 && // Assuming friend codes are 6 chars
+                       request.resource.data.createdAt == request.time &&
+                       request.resource.data.updatedAt == request.time &&
+                       request.resource.data.keys().hasAll(['email', 'displayName', 'photoUrl', 'friendCode', 'createdAt', 'updatedAt', 'friends']) &&
+                       request.resource.data.friends is list &&
+                       request.resource.data.friends.size() == 0;
+
+
+      // UPDATE: A user can update their own document.
+      // - Cannot change 'createdAt', 'friendCode', or 'email'.
+      // - 'updatedAt' must be server timestamp.
+      // - 'friends' array can be modified by the user (relies on client logic for correctness).
+      allow update: if request.auth.uid == userId &&
+                       isValidUid(request.auth.uid) &&
+                       request.resource.data.updatedAt == request.time &&
+                       // Fields that cannot be changed by client once set
+                       request.resource.data.email == resource.data.email &&
+                       request.resource.data.friendCode == resource.data.friendCode &&
+                       request.resource.data.createdAt == resource.data.createdAt &&
+                       // Check types for updatable fields
+                       request.resource.data.displayName is string &&
+                       (request.resource.data.photoUrl is string || request.resource.data.photoUrl == null) &&
+                       request.resource.data.friends is list &&
+                       (request.resource.data.friends.size() == 0 || request.resource.data.friends.all(f -> f is string && f.size() > 0));
+
+
+      // DELETE: Disallow direct client-side deletion for now.
+      allow delete: if false;
+    }
+
     match /friend_requests/{requestId} {
-      // Helper function to check if a string is a valid UID (basic check)
-      function isValidUid(uid) {
-        return uid is string && uid.size() > 0;
-      }
-
       // Helper function to check if the incoming data for create/update is valid
       function isValidRequestData(data) {
         return isValidUid(data.from) &&
                isValidUid(data.to) &&
-               data.from != data.to &&
+               data.from != data.to && // Cannot send request to oneself
                data.status is string &&
                (data.status == 'FriendshipStatus.pending' ||
                 data.status == 'FriendshipStatus.accepted' ||
@@ -40,33 +75,29 @@ service cloud.firestore {
                        request.resource.data.from == request.auth.uid &&
                        isPendingStatus(request.resource.data) &&
                        isValidRequestData(request.resource.data) &&
-                       request.resource.data.timestamp == request.time && // Enforce server timestamp for creation
-                       request.resource.data.updatedAt == request.time;   // Enforce server timestamp for initial updatedAt
+                       request.resource.data.timestamp == request.time &&
+                       request.resource.data.updatedAt == request.time;
 
       // READ: User can read if they are the sender ('from') or receiver ('to')
       allow read: if request.auth != null &&
                      (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
 
-      // UPDATE:
-      // Receiver can accept/reject a PENDING request. They can only change 'status' and 'updatedAt'.
+      // UPDATE: Receiver can accept/reject a PENDING request.
       allow update: if request.auth != null &&
-                       resource.data.to == request.auth.uid && // Only receiver can update
-                       isPendingStatus(resource.data) && // Can only update if currently pending
-                       request.resource.data.status != resource.data.status && // Status must change
+                       resource.data.to == request.auth.uid &&
+                       isPendingStatus(resource.data) &&
+                       request.resource.data.status != resource.data.status &&
                        (request.resource.data.status == 'FriendshipStatus.accepted' || request.resource.data.status == 'FriendshipStatus.rejected') &&
-                       request.resource.data.updatedAt == request.time && // Enforce server timestamp for update
-                       // Verify no other fields are changed except status and updatedAt
+                       request.resource.data.updatedAt == request.time &&
                        request.resource.data.keys().hasOnly(['from', 'to', 'status', 'timestamp', 'updatedAt']) &&
                        request.resource.data.from == resource.data.from &&
                        request.resource.data.to == resource.data.to &&
                        request.resource.data.timestamp == resource.data.timestamp;
 
-
       // DELETE: Sender can delete their PENDING request (cancel)
       allow delete: if request.auth != null &&
                        resource.data.from == request.auth.uid &&
                        isPendingStatus(resource.data);
-                       // No need to check request.resource.data for delete
     }
   }
 }
