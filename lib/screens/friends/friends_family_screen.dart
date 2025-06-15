@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart' as app_auth;
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../services/friend_service.dart'; // Adjust path if necessary
+import '../../models/user_model.dart';    // Adjust path if necessary
 
 class FriendsFamilyScreen extends StatefulWidget {
   const FriendsFamilyScreen({super.key});
@@ -13,6 +15,8 @@ class FriendsFamilyScreen extends StatefulWidget {
 }
 
 class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
+  final FriendService _friendService = FriendService(); // Add this
+
   @override
   Widget build(BuildContext context) {
     final user = Provider.of<app_auth.AuthProvider>(context).user;
@@ -24,14 +28,16 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
         title: const Text('Friends & Family'),
         centerTitle: true,
       ),
-      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots(),
+      body: StreamBuilder<List<UserModel>>(
+        stream: _friendService.getFriends(user.uid),
         builder: (context, snapshot) {
-          if (!snapshot.hasData) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          final data = snapshot.data!.data();
-          final List friends = data?['friends'] ?? [];
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+          final List<UserModel> friends = snapshot.data ?? [];
           if (friends.isEmpty) {
             return Center(
               child: Text(
@@ -45,56 +51,40 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
             itemCount: friends.length,
             separatorBuilder: (context, i) => const SizedBox(height: 12),
             itemBuilder: (context, i) {
-              final friendId = friends[i];
-              return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance.collection('users').doc(friendId).snapshots(),
-                builder: (context, friendSnap) {
-                  if (!friendSnap.hasData) {
-                    return ListTile(
-                      leading: const CircleAvatar(child: Icon(Icons.person)),
-                      title: const Text('Loading...'),
-                    );
-                  }
-                  final friendData = friendSnap.data!.data();
-                  final name = friendData?['displayName'] ?? 'Friend';
-                  final email = friendData?['email'] ?? '';
-                  final photoUrl = friendData?['photoUrl'];
-                  // TODO: Show online/location status if available
-                  return Card(
-                    elevation: 0,
-                    color: Theme.of(context).colorScheme.surface,
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundImage: photoUrl != null
-                            ? CachedNetworkImageProvider(photoUrl, cacheKey: 'profile_$friendId')
-                            : null,
-                        child: photoUrl == null ? const Icon(Icons.person) : null,
+              final UserModel friend = friends[i];
+              return Card(
+                elevation: 0,
+                color: Theme.of(context).colorScheme.surface,
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundImage: friend.photoUrl != null
+                        ? CachedNetworkImageProvider(friend.photoUrl!, cacheKey: 'profile_${friend.id}')
+                        : null,
+                    child: friend.photoUrl == null ? const Icon(Icons.person) : null,
+                  ),
+                  title: Text(friend.displayName ?? 'Friend', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(friend.email), // UserModel.email is not nullable
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _isOnline(friend) ? Colors.green : Colors.grey,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
                       ),
-                      title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text(email),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 12,
-                            height: 12,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: _isOnline(friendData) ? Colors.green : Colors.grey,
-                              border: Border.all(color: Colors.white, width: 2),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.location_on_outlined),
-                            onPressed: () {
-                              // TODO: Show friend's location on map or details
-                            },
-                          ),
-                        ],
+                      IconButton(
+                        icon: const Icon(Icons.location_on_outlined),
+                        onPressed: () {
+                          // TODO: Show friend's location on map or details
+                        },
                       ),
-                    ),
-                  );
-                },
+                    ],
+                  ),
+                ),
               );
             },
           );
@@ -103,12 +93,9 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     );
   }
 
-  bool _isOnline(Map<String, dynamic>? friendData) {
-    if (friendData == null) return false;
-    final location = friendData['location'];
-    if (location == null || location['updatedAt'] == null) return false;
-    final updatedAt = (location['updatedAt'] as Timestamp?)?.toDate();
-    if (updatedAt == null) return false;
-    return DateTime.now().difference(updatedAt).inMinutes < 2;
+  bool _isOnline(UserModel friend) { // Changed parameter
+    if (friend.lastSeen == null) return false;
+    // Consider a threshold, e.g., 5 minutes for "online"
+    return DateTime.now().difference(friend.lastSeen!).inMinutes < 5;
   }
 }

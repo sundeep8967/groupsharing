@@ -24,7 +24,7 @@ class FirebaseService {
       _firestore.collection('locations');
 
   static CollectionReference<Map<String, dynamic>> get friendshipsCollection =>
-      _firestore.collection('friendships');
+      _firestore.collection('friend_requests'); // Changed collection name
 
   static CollectionReference<Map<String, dynamic>> savedPlacesCollection(String userId) =>
       usersCollection.doc(userId).collection('saved_places');

@@ -231,11 +231,27 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
     // Reload/refresh logic
   }
 
+  // Refactored _cancelRequest
   Future<void> _cancelRequest(String requestId) async {
-    await FirebaseFirestore.instance.collection('friend_requests').doc(requestId).delete();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Friend request cancelled.')),
-    );
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User not logged in.")));
+      return;
+    }
+    try {
+      await _friendService.cancelSentRequest(requestId, currentUser.uid);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Friend request cancelled.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error cancelling request: ${e.toString()}')),
+      );
+    }
+    // Optional: Refresh logic if needed
   }
 
   Widget _buildRequestItem(FriendshipModel friendship, {bool isReceived = true}) {
@@ -244,7 +260,8 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
       elevation: 0,
       color: Theme.of(context).colorScheme.surface,
       child: FutureBuilder<UserModel?>(
-        future: _friendService.getUserDetails(isReceived ? friendship.userId : friendship.friendId),
+        // Corrected: Use friendship.from for sender (isReceived=true), friendship.to for receiver (isReceived=false)
+        future: _friendService.getUserDetails(isReceived ? friendship.from : friendship.to),
         builder: (context, userSnapshot) {
           String displayName = 'Loading...';
           String displayInitials = '?';
@@ -524,31 +541,21 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
                         .orderBy('timestamp', descending: true)
                         .snapshots(),
                     builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
                         return const Center(child: CircularProgressIndicator());
                       }
-                      final docs = snapshot.data!.docs;
-                      if (docs.isEmpty) {
+                      if (snapshot.hasError) {
+                        return _buildEmptyState('Error: ${snapshot.error}');
+                      }
+                      final requests = snapshot.data;
+                      if (requests == null || requests.isEmpty) {
                         return _buildEmptyState('No sent requests');
                       }
                       return ListView.builder(
-                        itemCount: docs.length,
+                        itemCount: requests.length,
                         itemBuilder: (context, index) {
-                          final request = docs[index].data() as Map<String, dynamic>;
-                          return _buildRequestItem(
-                            {
-                              'from': docs[index]['to'],
-                              'name': request['toName'] ?? 'Unknown User',
-                              'username': request['toEmail'] ?? '',
-                              'time': request['timestamp'] != null
-                                  ? '${DateTime.now().difference((request['timestamp'] as Timestamp).toDate()).inHours} hours ago'
-                                  : '',
-                              'avatar': request['toName']?.substring(0, 1).toUpperCase() ?? '?',
-                              'status': request['status'] ?? 'pending',
-                            },
-                            docs[index].id,
-                            isReceived: false,
-                          );
+                          final friendship = requests[index];
+                          return _buildRequestItem(friendship, isReceived: false);
                         },
                       );
                     },
