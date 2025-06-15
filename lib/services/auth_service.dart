@@ -17,86 +17,86 @@ class AuthService {
   User? get currentUser => _auth.currentUser;
 
   // Sign in with email and password
-  Future<UserCredential> signInWithEmailAndPassword(
-    String email,
-    String password,
-  ) async {
-    try {
-      final UserCredential userCredential = await _auth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+  // Future<UserCredential> signInWithEmailAndPassword(
+  //   String email,
+  //   String password,
+  // ) async {
+  //   try {
+  //     final UserCredential userCredential = await _auth.signInWithEmailAndPassword(
+  //       email: email,
+  //       password: password,
+  //     );
 
-      if (userCredential.user != null) {
-        String userId = userCredential.user!.uid;
-        // Add print statement here
-        print('[TESTING] User signed in with email. User ID: $userId. Checking friend code...');
-        DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
+  //     if (userCredential.user != null) {
+  //       String userId = userCredential.user!.uid;
+  //       // Add print statement here
+  //       print('[TESTING] User signed in with email. User ID: $userId. Checking friend code...');
+  //       DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
 
-        String? friendCode;
-        if (userDoc.exists) {
-          // Attempt to get the friend code
-          try {
-            friendCode = (userDoc.data() as Map<String, dynamic>)['friendCode'] as String?;
-          } catch (e) {
-            // Field might not exist or is not a string, treat as missing
-            friendCode = null;
-          }
-        }
+  //       String? friendCode;
+  //       if (userDoc.exists) {
+  //         // Attempt to get the friend code
+  //         try {
+  //           friendCode = (userDoc.data() as Map<String, dynamic>)['friendCode'] as String?;
+  //         } catch (e) {
+  //           // Field might not exist or is not a string, treat as missing
+  //           friendCode = null;
+  //         }
+  //       }
 
-        if (friendCode == null || friendCode.length != 6) {
-          // If friend code is missing or invalid, generate and save a new one
-          print('[TESTING] friendCode missing or invalid. Current value: $friendCode. Generating new one...');
-          String newFriendCode = await generateUniqueFriendCode();
-          print('[TESTING] Generated new friendCode for existing user: $newFriendCode');
-          // Add print statement here
-          print('[TESTING] Updating user $userId with new friendCode: $newFriendCode');
-          await _firestore.collection('users').doc(userId).update({
-            'friendCode': newFriendCode,
-          });
-        } else {
-          // Add print statement here
-          print('[TESTING] Existing valid friendCode found: $friendCode');
-        }
-      }
-      return userCredential;
-    } catch (e) {
-      throw _handleAuthException(e);
-    }
-  }
+  //       if (friendCode == null || friendCode.length != 6) {
+  //         // If friend code is missing or invalid, generate and save a new one
+  //         print('[TESTING] friendCode missing or invalid. Current value: $friendCode. Generating new one...');
+  //         String newFriendCode = await generateUniqueFriendCode();
+  //         print('[TESTING] Generated new friendCode for existing user: $newFriendCode');
+  //         // Add print statement here
+  //         print('[TESTING] Updating user $userId with new friendCode: $newFriendCode');
+  //         await _firestore.collection('users').doc(userId).update({
+  //           'friendCode': newFriendCode,
+  //         });
+  //       } else {
+  //         // Add print statement here
+  //         print('[TESTING] Existing valid friendCode found: $friendCode');
+  //       }
+  //     }
+  //     return userCredential;
+  //   } catch (e) {
+  //     throw _handleAuthException(e);
+  //   }
+  // }
 
   // Register with email and password
-  Future<UserCredential> registerWithEmailAndPassword(
-    String email,
-    String password,
-    String displayName,
-  ) async {
-    try {
-      // Add print statement here
-      print('[TESTING] Registering new user. displayName: $displayName. Generating friend code...');
-      final UserCredential userCredential = 
-          await _auth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+  // Future<UserCredential> registerWithEmailAndPassword(
+  //   String email,
+  //   String password,
+  //   String displayName,
+  // ) async {
+  //   try {
+  //     // Add print statement here
+  //     print('[TESTING] Registering new user. displayName: $displayName. Generating friend code...');
+  //     final UserCredential userCredential =
+  //         await _auth.createUserWithEmailAndPassword(
+  //       email: email,
+  //       password: password,
+  //     );
 
-      // Create user document in Firestore
-      if (userCredential.user != null) {
-        String newFriendCode = await generateUniqueFriendCode(); // generateUniqueFriendCode is now public
-        // Add print statement here
-        print('[TESTING] Generated friendCode for new user: $newFriendCode');
-        await _createUserDocument(
-          userCredential.user!,
-          displayName,
-          friendCode: newFriendCode
-        );
-      }
+  //     // Create user document in Firestore
+  //     if (userCredential.user != null) {
+  //       String newFriendCode = await generateUniqueFriendCode(); // generateUniqueFriendCode is now public
+  //       // Add print statement here
+  //       print('[TESTING] Generated friendCode for new user: $newFriendCode');
+  //       await _createUserDocument(
+  //         userCredential.user!,
+  //         displayName,
+  //         friendCode: newFriendCode
+  //       );
+  //     }
 
-      return userCredential;
-    } catch (e) {
-      throw _handleAuthException(e);
-    }
-  }
+  //     return userCredential;
+  //   } catch (e) {
+  //     throw _handleAuthException(e);
+  //   }
+  // }
 
   // Sign in with Google
   Future<UserCredential> signInWithGoogle() async {
@@ -142,30 +142,30 @@ class AuthService {
   }
 
   // Create user document in Firestore
-  Future<void> _createUserDocument(User user, String displayName, {String? friendCode}) async {
-    // Add print statement here
-    print('[TESTING] _createUserDocument called. User ID: ${user.uid}, DisplayName: $displayName, FriendCode: $friendCode');
-    final UserModel newUser = UserModel(
-      id: user.uid,
-      email: user.email!,
-      displayName: displayName,
-      photoUrl: user.photoURL, // Add photoUrl from the Firebase User object
-    );
+  // Future<void> _createUserDocument(User user, String displayName, {String? friendCode}) async {
+  //   // Add print statement here
+  //   print('[TESTING] _createUserDocument called. User ID: ${user.uid}, DisplayName: $displayName, FriendCode: $friendCode');
+  //   final UserModel newUser = UserModel(
+  //     id: user.uid,
+  //     email: user.email!,
+  //     displayName: displayName,
+  //     photoUrl: user.photoURL, // Add photoUrl from the Firebase User object
+  //   );
 
-    Map<String, dynamic> userData = newUser.toMap();
+  //   Map<String, dynamic> userData = newUser.toMap();
 
-    if (friendCode != null) {
-      userData['friendCode'] = friendCode;
-    }
+  //   if (friendCode != null) {
+  //     userData['friendCode'] = friendCode;
+  //   }
 
-    // Add/update timestamps
-    userData['createdAt'] = FieldValue.serverTimestamp();
-    userData['updatedAt'] = FieldValue.serverTimestamp();
+  //   // Add/update timestamps
+  //   userData['createdAt'] = FieldValue.serverTimestamp();
+  //   userData['updatedAt'] = FieldValue.serverTimestamp();
 
-    // Add print statement here
-    print('[TESTING] Saving new user to Firestore. Data: $userData');
-    await _firestore.collection('users').doc(user.uid).set(userData);
-  }
+  //   // Add print statement here
+  //   print('[TESTING] Saving new user to Firestore. Data: $userData');
+  //   await _firestore.collection('users').doc(user.uid).set(userData);
+  // }
 
   // Generate a unique friend code
   Future<String> generateUniqueFriendCode() async {
@@ -189,21 +189,10 @@ class AuthService {
   // Handle authentication exceptions
   Exception _handleAuthException(dynamic e) {
     if (e is FirebaseAuthException) {
-      switch (e.code) {
-        case 'user-not-found':
-          return Exception('No user found with this email.');
-        case 'wrong-password':
-          return Exception('Wrong password provided.');
-        case 'email-already-in-use':
-          return Exception('Email is already registered.');
-        case 'invalid-email':
-          return Exception('Invalid email address.');
-        case 'weak-password':
-          return Exception('Password is too weak.');
-        default:
-          return Exception('Authentication error: ${e.message}');
-      }
+      // Specific email/password cases removed
+      // Keeping default for other potential errors from Google Sign-In or other Firebase Auth operations
+      return Exception('Authentication error: ${e.code} - ${e.message}');
     }
-    return Exception('An unexpected error occurred.');
+    return Exception('An unexpected error occurred: ${e.toString()}'); // Added e.toString() for more info
   }
 }
