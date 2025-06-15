@@ -5,9 +5,6 @@ import 'firebase_service.dart'; // For accessing Firestore collections
 
 class FriendService {
   final FirebaseFirestore _firestore = FirebaseService.firestore;
-  // Corrected: Use FirebaseService.usersCollection directly or ensure it's correctly typed if assigned.
-  // For simplicity, let's use FirebaseService.usersCollection directly in queries if _usersCollection is not specifically typed.
-  // However, the existing structure `final CollectionReference _usersCollection = FirebaseService.usersCollection;` is fine.
   final CollectionReference<Map<String, dynamic>> _usersCollection = FirebaseService.usersCollection;
   final CollectionReference<Map<String, dynamic>> _friendshipsCollection = FirebaseService.friendshipsCollection;
 
@@ -169,11 +166,6 @@ class FriendService {
     print('[FriendService] Attempting to reject friend request: $requestID');
     try {
       final requestDocRef = _friendshipsCollection.doc(requestID);
-      // Check if document exists before updating (optional, update won't fail but good practice)
-      // final requestSnapshot = await requestDocRef.get();
-      // if (!requestSnapshot.exists) {
-      //   throw Exception('Friend request document not found.');
-      // }
 
       await requestDocRef.update({
         'status': FriendshipStatus.rejected.toString(),
@@ -306,12 +298,6 @@ class FriendService {
         print('[FriendService] User $currentUserUID is not authorized to cancel request $requestID.');
         throw Exception('You are not authorized to cancel this request.');
       }
-
-      // Optional: Check if the request is still pending before allowing cancellation
-      // if (requestData['status'] != FriendshipStatus.pending.toString()) {
-      //   print('[FriendService] Request $requestID is no longer pending and cannot be cancelled.');
-      //   throw Exception('This request is no longer pending and cannot be cancelled.');
-      // }
 
       await requestDocRef.delete();
       print('[FriendService] Sent request $requestID cancelled successfully by $currentUserUID.');
