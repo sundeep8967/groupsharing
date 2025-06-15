@@ -122,12 +122,12 @@ class AuthService {
           await _auth.signInWithCredential(credential);
 
       // Create/Update user document in Firestore
-      if (userCredential.user != null) {
-        await _createUserDocument(
-          userCredential.user!,
-          userCredential.user!.displayName ?? 'User',
-        );
-      }
+      // if (userCredential.user != null) {
+      //   await _createUserDocument(
+      //     userCredential.user!,
+      //     userCredential.user!.displayName ?? 'User',
+      //   );
+      // }
 
       return userCredential;
     } catch (e) {
