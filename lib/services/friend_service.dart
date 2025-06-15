@@ -75,15 +75,15 @@ class FriendService {
     try {
       // Check 1: Request from currentUserUID to targetUserUID
       final existingRequestQuery1 = await _friendshipsCollection
-          .where('userId', isEqualTo: currentUserUID)
-          .where('friendId', isEqualTo: targetUserUID)
+          .where('from', isEqualTo: currentUserUID) // Changed: userId -> from
+          .where('to', isEqualTo: targetUserUID)     // Changed: friendId -> to
           .limit(1)
           .get();
 
       // Check 2: Request from targetUserUID to currentUserUID
       final existingRequestQuery2 = await _friendshipsCollection
-          .where('userId', isEqualTo: targetUserUID)
-          .where('friendId', isEqualTo: currentUserUID)
+          .where('from', isEqualTo: targetUserUID)   // Changed: userId -> from
+          .where('to', isEqualTo: currentUserUID)   // Changed: friendId -> to
           .limit(1)
           .get();
 
@@ -100,10 +100,10 @@ class FriendService {
 
       // If no existing request, create a new one
       final newRequestData = {
-        'userId': currentUserUID,
-        'friendId': targetUserUID,
+        'from': currentUserUID, // Changed: userId -> from
+        'to': targetUserUID,   // Changed: friendId -> to
         'status': FriendshipStatus.pending.toString(), // Use enum value
-        'createdAt': FieldValue.serverTimestamp(),
+        'timestamp': FieldValue.serverTimestamp(), // Changed: createdAt -> timestamp
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -133,8 +133,8 @@ class FriendService {
         throw Exception('Friend request data is null.');
       }
 
-      final String senderUID = requestData['userId'];
-      final String receiverUID = requestData['friendId'];
+      final String senderUID = requestData['from']; // Changed: userId -> from
+      final String receiverUID = requestData['to'];   // Changed: friendId -> to
 
       // Update the friendship document status to accepted
       await requestDocRef.update({
@@ -177,7 +177,7 @@ class FriendService {
 
       await requestDocRef.update({
         'status': FriendshipStatus.rejected.toString(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(), // Ensured updatedAt is set
       });
       print('[FriendService] Friend request $requestID rejected successfully.');
     } catch (e) {
@@ -191,9 +191,9 @@ class FriendService {
     print('[FriendService] getPendingRequests called for user: $currentUserUID');
     try {
       return _friendshipsCollection
-          .where('friendId', isEqualTo: currentUserUID) // Requests sent TO the current user
+          .where('to', isEqualTo: currentUserUID) // Changed: friendId -> to
           .where('status', isEqualTo: FriendshipStatus.pending.toString())
-          .orderBy('createdAt', descending: true)
+          .orderBy('timestamp', descending: true) // Changed: createdAt -> timestamp
           .snapshots()
           .map((snapshot) {
         return snapshot.docs.map((doc) {
@@ -262,6 +262,64 @@ class FriendService {
     } catch (e) {
       print('[FriendService] Error fetching user details for $uid: $e');
       return null;
+    }
+  }
+
+  Stream<List<FriendshipModel>> getSentRequests(String currentUserUID) {
+    print('[FriendService] getSentRequests called for user: $currentUserUID');
+    try {
+      return _friendshipsCollection // This now correctly points to 'friend_requests'
+          .where('from', isEqualTo: currentUserUID) // Requests sent BY the current user
+          .orderBy('timestamp', descending: true)
+          .snapshots()
+          .map((snapshot) {
+        return snapshot.docs.map((doc) {
+          return FriendshipModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+        }).toList();
+      }).handleError((error) {
+        print('[FriendService] Error in getSentRequests stream: $error');
+        return [];
+      });
+    } catch (e) {
+      print('[FriendService] Exception caught while setting up getSentRequests stream: $e');
+      return Stream.value([]);
+    }
+  }
+
+  Future<void> cancelSentRequest(String requestID, String currentUserUID) async {
+    print('[FriendService] Attempting to cancel sent request: $requestID by user: $currentUserUID');
+    try {
+      final requestDocRef = _friendshipsCollection.doc(requestID);
+      final requestSnapshot = await requestDocRef.get();
+
+      if (!requestSnapshot.exists) {
+        throw Exception('Friend request document not found.');
+      }
+
+      final requestData = requestSnapshot.data();
+      if (requestData == null) {
+        throw Exception('Friend request data is null.');
+      }
+
+      // Verify that the current user is the sender of this request
+      if (requestData['from'] != currentUserUID) {
+        print('[FriendService] User $currentUserUID is not authorized to cancel request $requestID.');
+        throw Exception('You are not authorized to cancel this request.');
+      }
+
+      // Optional: Check if the request is still pending before allowing cancellation
+      // if (requestData['status'] != FriendshipStatus.pending.toString()) {
+      //   print('[FriendService] Request $requestID is no longer pending and cannot be cancelled.');
+      //   throw Exception('This request is no longer pending and cannot be cancelled.');
+      // }
+
+      await requestDocRef.delete();
+      print('[FriendService] Sent request $requestID cancelled successfully by $currentUserUID.');
+
+    } catch (e) {
+      print('[FriendService] Error cancelling sent request $requestID: $e');
+      // Re-throw to be handled by the UI
+      throw Exception('Failed to cancel sent request: ${e.toString()}');
     }
   }
 }
