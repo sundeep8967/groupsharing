@@ -286,8 +286,8 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
 
           // Calculate time ago - assuming friendship.createdAt is a Timestamp
           String timeAgo = '';
-          if (friendship.createdAt != null) {
-            final duration = DateTime.now().difference(friendship.createdAt!.toDate());
+          if (friendship.timestamp != null) {
+            final duration = DateTime.now().difference(friendship.timestamp);
             if (duration.inDays > 0) {
               timeAgo = '${duration.inDays}d ago';
             } else if (duration.inHours > 0) {
@@ -547,14 +547,21 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
                       if (snapshot.hasError) {
                         return _buildEmptyState('Error: ${snapshot.error}');
                       }
-                      final requests = snapshot.data;
-                      if (requests == null || requests.isEmpty) {
+                      if (!snapshot.hasData) {
+                        return _buildEmptyState('No sent requests');
+                      }
+                      final requests = snapshot.data!;
+                      if (requests.docs.isEmpty) {
                         return _buildEmptyState('No sent requests');
                       }
                       return ListView.builder(
-                        itemCount: requests.length,
+                        itemCount: requests.docs.length,
                         itemBuilder: (context, index) {
-                          final friendship = requests[index];
+                          final doc = requests.docs[index];
+                          final friendship = FriendshipModel.fromMap(
+                            doc.data() as Map<String, dynamic>,
+                            doc.id,
+                          );
                           return _buildRequestItem(friendship, isReceived: false);
                         },
                       );
