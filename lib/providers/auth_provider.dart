@@ -2,7 +2,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../services/auth_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-// import 'dart:math'; // No longer needed here
 
 class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
@@ -33,8 +32,6 @@ class AuthProvider with ChangeNotifier {
         // Add print statement here
         print('[TESTING] User signed in with Google. User ID: ${user.uid}. Checking/generating friend code...');
         final userDoc = FirebaseFirestore.instance.collection('users').doc(user.uid);
-        // Remove old print
-        // print('Writing user doc for \\${user.uid}');
         final docSnap = await userDoc.get();
         // Add print statement here
         print('[TESTING] Firestore docSnap for Google user: ${docSnap.data()}');
@@ -51,7 +48,7 @@ class AuthProvider with ChangeNotifier {
         }
 
         Map<String, dynamic> userDataToSet = {
-          'email': user.email,
+          'email': user.email?.toLowerCase(),
           'displayName': user.displayName,
           'photoUrl': user.photoURL,
           'friendCode': friendCode, // This is the determined friendCode
@@ -68,7 +65,6 @@ class AuthProvider with ChangeNotifier {
         print('[TESTING] Saving/updating Google user data to Firestore. Data being set: $userDataToSet');
 
         await userDoc.set(userDataToSet, SetOptions(merge: true));
-        // print('User doc written'); // Or keep the [TESTING] print - keeping the TESTING one for now
       }
     } catch (e) {
       print('Google sign in error: \\${e.toString()}');

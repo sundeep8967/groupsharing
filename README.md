@@ -190,7 +190,6 @@ lib/
 │   │   └── signup_screen.dart  # User registration (if applicable beyond Google sign-up)
 │   ├── friends/              # Screens related to friend management
 │   │   ├── add_friends_screen.dart   # Screen to search and add new friends
-│   │   ├── friend_requests_screen.dart # Screen to manage pending friend requests
 │   │   └── friends_list_screen.dart    # Renamed from friends_family_screen for clarity; displays friends
 │   ├── main/                 # Core app navigation and primary content
 │   │   └── main_screen.dart  # Main screen orchestrating bottom navigation bar
