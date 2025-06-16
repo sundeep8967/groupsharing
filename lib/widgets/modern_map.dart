@@ -38,6 +38,7 @@ class ModernMap extends StatefulWidget {
   final bool showUserLocation;
   final latlong.LatLng? userLocation;
   final void Function(MapMarker)? onMarkerTap;
+  final void Function(latlong.LatLng center, double zoom)? onMapMoved; // <-- Add this
 
   const ModernMap({
     super.key,
@@ -46,6 +47,7 @@ class ModernMap extends StatefulWidget {
     this.showUserLocation = true,
     this.userLocation,
     this.onMarkerTap,
+    this.onMapMoved, // <-- Add this
   });
 
   @override
@@ -224,8 +226,6 @@ class _ModernMapState extends State<ModernMap>
     return markers;
   }
 
-  bool _isUserInteracting = false;
-
   @override
   void didUpdateWidget(ModernMap oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -272,14 +272,10 @@ class _ModernMapState extends State<ModernMap>
                     _mapController.move(widget.userLocation!, 15);
                   }
                 },
-                onPointerDown: (event, _) {
-                  _isUserInteracting = true;
-                },
-                onPointerUp: (event, _) {
-                  _isUserInteracting = false;
-                },
-                onPointerCancel: (event, _) {
-                  _isUserInteracting = false;
+                onPositionChanged: (position, hasGesture) {
+                  if (widget.onMapMoved != null && position.center != null && position.zoom != null) {
+                    widget.onMapMoved!(position.center!, position.zoom!);
+                  }
                 },
               ),
               children: [

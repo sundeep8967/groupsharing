@@ -63,6 +63,8 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Required for background_locator_2 background service -->
+        <service android:name="rekab.app.background_locator.IsolateHolderService" android:exported="false" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

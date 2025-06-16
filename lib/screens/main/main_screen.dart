@@ -23,10 +23,12 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _selectedIndex = 0;
-  
-  // Cache for map markers to prevent constant rebuilding
   Set<MapMarker> _cachedMarkers = {};
   List<String> _lastNearbyUsers = [];
+
+  // Store last map center/zoom
+  LatLng? _lastMapCenter;
+  double _lastMapZoom = 15.0;
   
   // State for location info overlay
   bool _showLocationInfo = true;
@@ -236,7 +238,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Widget _buildMapScreen() {
     return Consumer2<LocationProvider, AuthProvider>(
       builder: (context, locationProvider, authProvider, _) {
-        // Handle loading state
         if (locationProvider.currentLocation == null) {
           return _buildLoadingScreen(locationProvider, authProvider);
         }
@@ -245,62 +246,76 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _updateMarkersIfNeeded(locationProvider);
 
         final currentLocation = locationProvider.currentLocation!;
-        
-        return Stack(
-          children: [
-            // Map Widget
-            Positioned.fill(
-              child: ModernMap(
-                key: ValueKey('map_${currentLocation.latitude}_${currentLocation.longitude}'),
-                initialPosition: currentLocation,
-                userLocation: currentLocation,
-                markers: _cachedMarkers,
-                showUserLocation: true,
-                onMarkerTap: (marker) {
-                  _showMarkerDetails(context, marker);
-                },
+        // Use last map center/zoom unless user requests recenter
+        final mapCenter = _lastMapCenter ?? currentLocation;
+        final mapZoom = _lastMapZoom;
+
+        return Listener(
+          onPointerUp: (_) {
+            // Save map center/zoom after user interaction
+            // (You may need to expose mapController from ModernMap for this)
+          },
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: ModernMap(
+                  key: const ValueKey('main_map'),
+                  initialPosition: mapCenter,
+                  userLocation: currentLocation,
+                  markers: _cachedMarkers,
+                  showUserLocation: true,
+                  onMarkerTap: (marker) {
+                    _showMarkerDetails(context, marker);
+                  },
+                  onMapMoved: (center, zoom) {
+                    setState(() {
+                      _lastMapCenter = center;
+                      _lastMapZoom = zoom;
+                    });
+                  },
+                ),
               ),
-            ),
-            
-            // Location Info Toggle Button
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 80, // Below search bar
-              right: 16,
-              child: Material(
-                shape: const CircleBorder(),
-                color: Theme.of(context).colorScheme.surface,
-                elevation: 2,
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: () => setState(() => _showLocationInfo = !_showLocationInfo),
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Icon(
-                      _showLocationInfo ? Icons.info : Icons.info_outline,
-                      size: 20,
+              
+              // Location Info Toggle Button
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 80, // Below search bar
+                right: 16,
+                child: Material(
+                  shape: const CircleBorder(),
+                  color: Theme.of(context).colorScheme.surface,
+                  elevation: 2,
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => setState(() => _showLocationInfo = !_showLocationInfo),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Icon(
+                        _showLocationInfo ? Icons.info : Icons.info_outline,
+                        size: 20,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            
-            // Location Info Overlay (only when visible)
-            if (_showLocationInfo)
+              
+              // Location Info Overlay (only when visible)
+              if (_showLocationInfo)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 130,
+                  left: 16,
+                  right: 16,
+                  child: _buildLocationInfo(locationProvider),
+                ),
+              
+              // Bottom Controls
               Positioned(
-                top: MediaQuery.of(context).padding.top + 130,
-                left: 16,
-                right: 16,
-                child: _buildLocationInfo(locationProvider),
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: _buildBottomControls(locationProvider, authProvider),
               ),
-            
-            // Bottom Controls
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: _buildBottomControls(locationProvider, authProvider),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );

@@ -16,7 +16,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await FMTCObjectBoxBackend().initialise();
-  } catch (error, stackTrace) {
+  } catch (error) {
     // Optionally log or handle FMTC initialization errors
   }
   await Firebase.initializeApp();
@@ -27,7 +27,7 @@ void main() async {
   // Check if onboarding is completed
   final prefs = await SharedPreferences.getInstance();
   final isOnboardingComplete = prefs.getBool('onboarding_complete') ?? false;
-  
+
   runApp(MyApp(isOnboardingComplete: isOnboardingComplete));
 }
 
@@ -87,8 +87,7 @@ class _LocationSharingPageState extends State<LocationSharingPage> {
 
   @override
   void dispose() {
-    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
-    locationProvider.stopTracking();
+    // Removed stopTracking from here to avoid calling provider after signOut
     super.dispose();
   }
 
@@ -102,6 +101,8 @@ class _LocationSharingPageState extends State<LocationSharingPage> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () {
+              // Stop tracking before signing out to avoid provider/context issues
+              Provider.of<LocationProvider>(context, listen: false).stopTracking();
               Provider.of<AuthProvider>(context, listen: false).signOut();
             },
           ),
