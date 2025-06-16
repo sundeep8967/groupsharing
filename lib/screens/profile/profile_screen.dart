@@ -89,6 +89,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _buildProfileHeader(user, colorScheme),
                   const SizedBox(height: 24),
                   _buildSavedPlaces(theme),
+                  const SizedBox(height: 24),
+                  _buildDeleteAccountButton(context),
                   // Add extra space at the bottom
                   SizedBox(height: bottomPadding + 80), // Extra space for the button
                 ],
@@ -640,4 +642,103 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // _getJoinedDate method removed as it's no longer used
+
+  Widget _buildDeleteAccountButton(BuildContext context) {
+    return ElevatedButton.icon(
+      icon: const Icon(Icons.delete_forever),
+      label: const Text('Delete Account'),
+      onPressed: _isLoading ? null : () => _showDeleteConfirmationDialog(context),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.red,
+        foregroundColor: Colors.white,
+        minimumSize: const Size(double.infinity, 50), // Make button wider
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+
+  void _showDeleteConfirmationDialog(BuildContext mainScreenContext) {
+    // Use a StatefulWidget for the dialog to manage its own loading state if needed,
+    // but for now, we'll rely on the screen's _isLoading state.
+    showDialog(
+      context: mainScreenContext,
+      barrierDismissible: !_isLoading, // Prevent dismissing while loading
+      builder: (BuildContext dialogContext) {
+        // Access AuthProvider using mainScreenContext if dialogContext can't find it
+        final authProvider = Provider.of<app_auth.AuthProvider>(mainScreenContext, listen: false);
+
+        return AlertDialog(
+          title: const Text('Delete Account?'),
+          content: _isLoading
+              ? const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Deleting account...'),
+                  ],
+                )
+              : const Text('Are you sure you want to delete your account? This action cannot be undone.'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: _isLoading ? null : () {
+                Navigator.of(dialogContext).pop(); // Close the dialog
+              },
+            ),
+            TextButton(
+              child: Text('Delete', style: TextStyle(color: _isLoading ? Colors.grey : Colors.red)),
+              onPressed: _isLoading ? null : () async {
+                if (!mounted) return;
+                setState(() {
+                  _isLoading = true;
+                });
+
+                try {
+                  await authProvider.deleteUserAccount();
+
+                  if (mounted) {
+                    setState(() {
+                      _isLoading = false;
+                    });
+                    Navigator.of(dialogContext).pop(); // Close the dialog
+
+                    ScaffoldMessenger.of(mainScreenContext).showSnackBar(
+                      const SnackBar(content: Text('Account deleted successfully.')),
+                    );
+                    Navigator.of(mainScreenContext).pushNamedAndRemoveUntil(
+                      '/welcome',
+                      (route) => false,
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    setState(() {
+                      _isLoading = false;
+                    });
+                    Navigator.of(dialogContext).pop(); // Close the dialog
+
+                    String errorMessage = 'Failed to delete account. Please try again.';
+                    if (e.toString().contains('requires-recent-login')) {
+                      errorMessage = 'This action requires recent login. Please sign out and sign in again, then retry.';
+                    } else {
+                      errorMessage = e.toString().replaceFirst('Exception: ', '');
+                    }
+                    ScaffoldMessenger.of(mainScreenContext).showSnackBar(
+                      SnackBar(
+                        content: Text(errorMessage),
+                        duration: const Duration(seconds: 5),
+                      ),
+                    );
+                  }
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
 }

@@ -141,6 +141,52 @@ class AuthService {
     await _googleSignIn.signOut();
   }
 
+  // Delete user account
+  Future<void> deleteUserAccount() async {
+    final User? user = _auth.currentUser;
+
+    if (user == null) {
+      throw Exception('No user is currently signed in. Cannot delete account.');
+    }
+
+    final String userId = user.uid;
+
+    try {
+      // Step 1: Delete user-specific sub-collections (e.g., saved_places)
+      // This method is expected to be in FirebaseService and will be implemented later.
+      await FirebaseService.deleteUserSubCollections(userId);
+      print('Successfully deleted user sub-collections for $userId.');
+
+      // Step 2: Delete the user's document from the 'users' collection
+      // This method is expected to be in FirebaseService and will be implemented later.
+      await FirebaseService.deleteUserDocument(userId);
+      print('Successfully deleted user document for $userId from Firestore.');
+
+      // Step 3: Delete the user from Firebase Authentication
+      await user.delete();
+      print('Successfully deleted user account from Firebase Authentication for $userId.');
+
+      // Optionally, sign out the user from Google Sign-In if they used it
+      // This might be redundant if user.delete() handles it, but good for thoroughness
+      if (await _googleSignIn.isSignedIn()) {
+        await _googleSignIn.signOut();
+        print('Signed out from Google after account deletion.');
+      }
+
+    } on FirebaseAuthException catch (e) {
+      print('Error deleting user from Firebase Authentication: ${e.code} - ${e.message}');
+      // Specific handling for re-authentication if needed
+      if (e.code == 'requires-recent-login') {
+        throw Exception(
+            'This operation is sensitive and requires recent authentication. Please log in again before retrying.');
+      }
+      throw Exception('Failed to delete Firebase Auth user: ${e.message}');
+    } catch (e) {
+      print('An error occurred during account deletion for user $userId: $e');
+      throw Exception('Failed to delete user account: $e');
+    }
+  }
+
   // Create user document in Firestore
   Future<void> _createUserDocument(User user, String displayName, {String? friendCode}) async {
     // Add print statement here
