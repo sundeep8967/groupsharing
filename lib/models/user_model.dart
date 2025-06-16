@@ -41,16 +41,25 @@ class UserModel {
   }
 
   factory UserModel.fromMap(Map<String, dynamic> map, String id) {
+    // Try 'lastLocation' (GeoPoint), fallback to 'location' (Map with lat/lng)
+    LatLng? location;
     final GeoPoint? geoPoint = map['lastLocation'] as GeoPoint?;
-    
+    if (geoPoint != null) {
+      location = LatLng(geoPoint.latitude, geoPoint.longitude);
+    } else if (map['location'] != null && map['location'] is Map) {
+      final locMap = map['location'] as Map;
+      final lat = locMap['lat'];
+      final lng = locMap['lng'];
+      if (lat != null && lng != null) {
+        location = LatLng((lat as num).toDouble(), (lng as num).toDouble());
+      }
+    }
     return UserModel(
       id: id,
       email: map['email'] ?? '',
       displayName: map['displayName'],
       photoUrl: map['photoUrl'],
-      lastLocation: geoPoint != null 
-          ? LatLng(geoPoint.latitude, geoPoint.longitude)
-          : null,
+      lastLocation: location,
       lastSeen: (map['lastSeen'] as Timestamp?)?.toDate(),
       friendCode: map['friendCode'] as String?, // New
       createdAt: (map['createdAt'] as Timestamp?)?.toDate(), // New

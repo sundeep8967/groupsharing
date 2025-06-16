@@ -5,8 +5,6 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/location_model.dart';
 import 'firebase_service.dart';
-import 'package:battery_plus/battery_plus.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 import 'device_info_service.dart';
 
 class LocationService {
@@ -215,4 +213,8 @@ class LocationService {
   Future<void> sendDeviceAndBatteryInfo(String userId) async {
     await DeviceInfoService.sendDeviceAndBatteryInfo(userId);
   }
+
+ void initBackgroundGeolocation() {
+   // Background location tracking removed
+}
 }

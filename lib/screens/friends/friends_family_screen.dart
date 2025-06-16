@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart' as app_auth;
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/friend_service.dart'; // Adjust path if necessary
 import '../../models/user_model.dart';    // Adjust path if necessary
+import '../../providers/location_provider.dart'; // Adjust path if necessary
+import 'package:url_launcher/url_launcher.dart';
 
 class FriendsFamilyScreen extends StatefulWidget {
   const FriendsFamilyScreen({super.key});
@@ -15,7 +15,8 @@ class FriendsFamilyScreen extends StatefulWidget {
 }
 
 class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
-  final FriendService _friendService = FriendService(); // Add this
+  final FriendService _friendService = FriendService();
+  final Map<String, Map<String, String?>> _addressCache = {};
 
   @override
   Widget build(BuildContext context) {
@@ -63,7 +64,13 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
                     child: friend.photoUrl == null ? const Icon(Icons.person) : null,
                   ),
                   title: Text(friend.displayName ?? 'Friend', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text(friend.email), // UserModel.email is not nullable
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(friend.email),
+                      _FriendAddressSection(friend: friend),
+                    ],
+                  ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -78,9 +85,28 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.location_on_outlined),
-                        onPressed: () {
-                          // TODO: Show friend's location on map or details
-                        },
+                        onPressed: friend.lastLocation != null
+                            ? () async {
+                                final lat = friend.lastLocation!.latitude;
+                                final lng = friend.lastLocation!.longitude;
+                                final googleMapsUrl = 'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
+                                final androidIntent = Uri.parse('geo:$lat,$lng?q=$lat,$lng');
+                                try {
+                                  bool launched = false;
+                                  launched = await launchUrl(
+                                    androidIntent,
+                                    mode: LaunchMode.externalApplication,
+                                  );
+                                  if (!launched) {
+                                    await launchUrl(Uri.parse(googleMapsUrl), mode: LaunchMode.externalApplication);
+                                  }
+                                } catch (e) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Could not open Google Maps.')),
+                                  );
+                                }
+                              }
+                            : null,
                       ),
                     ],
                   ),
@@ -97,5 +123,88 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     if (friend.lastSeen == null) return false;
     // Consider a threshold, e.g., 5 minutes for "online"
     return DateTime.now().difference(friend.lastSeen!).inMinutes < 5;
+  }
+}
+
+class _FriendAddressSection extends StatefulWidget {
+  final UserModel friend;
+  const _FriendAddressSection({required this.friend});
+
+  @override
+  State<_FriendAddressSection> createState() => _FriendAddressSectionState();
+}
+
+class _FriendAddressSectionState extends State<_FriendAddressSection> {
+  Map<String, String?>? _address;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAddress();
+  }
+
+  void _loadAddress() async {
+    final state = context.findAncestorStateOfType<_FriendsFamilyScreenState>();
+    final friend = widget.friend;
+    if (friend.lastLocation == null) return;
+    final cache = state?._addressCache;
+    final cacheKey = friend.id;
+    if (cache != null && cache.containsKey(cacheKey)) {
+      setState(() {
+        _address = cache[cacheKey];
+      });
+      return;
+    }
+    setState(() => _loading = true);
+    final addr = await Provider.of<LocationProvider>(context, listen: false)
+        .getAddressForCoordinates(friend.lastLocation!.latitude, friend.lastLocation!.longitude);
+    if (mounted) {
+      setState(() {
+        _address = addr;
+        _loading = false;
+      });
+      if (cache != null) cache[cacheKey] = addr;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final friend = widget.friend;
+    if (friend.lastLocation == null) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 4.0),
+        child: Text('No address available', style: TextStyle(fontSize: 12, color: Colors.grey)),
+      );
+    }
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 4.0),
+        child: SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    if (_address == null || _address!.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 4.0),
+        child: Text('No address available', style: TextStyle(fontSize: 12, color: Colors.grey)),
+      );
+    }
+    final address = _address!['address'] ?? '';
+    final city = _address!['city'] ?? '';
+    final pin = _address!['postalCode'] ?? '';
+    return Padding(
+      padding: const EdgeInsets.only(top: 4.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (address.isNotEmpty) Text(address, style: TextStyle(color: Theme.of(context).textTheme.bodySmall?.color?.withOpacity(0.7))),
+          if (city.isNotEmpty || pin.isNotEmpty)
+            Text(
+              [if (pin.isNotEmpty) pin, if (city.isNotEmpty) city].join(' • '),
+              style: TextStyle(color: Theme.of(context).textTheme.bodySmall?.color?.withOpacity(0.7)),
+            ),
+        ],
+      ),
+    );
   }
 }

@@ -1,7 +1,11 @@
-import 'dart:math'; // Added for Random
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'firebase_service.dart';
 
@@ -103,35 +107,88 @@ class AuthService {
     try {
       // Trigger the authentication flow
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      
       if (googleUser == null) {
-        throw Exception('Google Sign In was cancelled');
-      }
-
-      // Obtain the auth details from the request
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-
-      // Create a new credential
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      // Sign in to Firebase with the Google credential
-      final UserCredential userCredential = 
-          await _auth.signInWithCredential(credential);
-
-      // Create/Update user document in Firestore
-      if (userCredential.user != null) {
-        await _createUserDocument(
-          userCredential.user!,
-          userCredential.user!.displayName ?? 'User',
+        throw FirebaseAuthException(
+          code: 'sign_in_canceled',
+          message: 'Sign in was canceled',
         );
       }
 
+      // Obtain the auth details from the request
+      final GoogleSignInAuthentication? googleAuth = await googleUser.authentication;
+
+      // Create a new credential
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth?.accessToken,
+        idToken: googleAuth?.idToken,
+      );
+      
+      // Sign in to Firebase with the Google credential
+      UserCredential userCredential = await _auth.signInWithCredential(credential);
+      
+      // Save user data to Firestore and SharedPreferences
+      if (userCredential.user != null) {
+        await _saveUserData(userCredential.user!);
+      }
+      
       return userCredential;
     } catch (e) {
-      throw _handleAuthException(e);
+      print('Google sign in error: $e');
+      rethrow;
+    }
+  }
+  
+  // Save user data to Firestore and SharedPreferences
+  Future<void> _saveUserData(User user) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final firestore = FirebaseFirestore.instance;
+      final userDoc = await firestore.collection('users').doc('userid${user.uid}').get();
+      
+      // Get FCM token
+      final fcmToken = await FirebaseMessaging.instance.getToken();
+      
+      // Save user data locally
+      await prefs.setString('userName', user.displayName ?? '');
+      await prefs.setString('profilePhoto', user.photoURL ?? '');
+      
+      // Prepare user data for Firestore
+      Map<String, dynamic> userData = {
+        'email': user.email?.toLowerCase(),
+        'displayName': user.displayName,
+        'photoUrl': user.photoURL,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      
+      // Add FCM token if available
+      if (fcmToken != null) {
+        userData['fcmToken'] = fcmToken;
+      }
+      
+      // Add created timestamp if new user
+      if (!userDoc.exists) {
+        userData['createdAt'] = FieldValue.serverTimestamp();
+      }
+      
+      // Save to Firestore
+      await firestore.collection('users').doc('userid${user.uid}').set(userData, SetOptions(merge: true));
+      
+      // Handle birthdays if they exist in the document
+      if (userDoc.exists) {
+        final data = userDoc.data();
+        if (data != null && data.containsKey('birthdays')) {
+          final Map<String, dynamic> birthdays = data['birthdays'];
+          List<Map<String, dynamic>> birthdayList = [];
+          birthdays.forEach((key, value) {
+            Map<String, dynamic> birthdayData = Map<String, dynamic>.from(value);
+            birthdayList.add(birthdayData);
+          });
+          await prefs.setString('birthdays', jsonEncode(birthdayList));
+        }
+      }
+    } catch (e) {
+      print('Error saving or fetching user data: $e');
+      rethrow;
     }
   }
 
