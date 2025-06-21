@@ -6,12 +6,13 @@ import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.plugin.common.MethodChannel;
 
 public class MainActivity extends FlutterActivity {
-    private static final String CHANNEL = "background_location";
+    private static final String CHANNEL_LOCATION = "background_location";
+    private static final String CHANNEL_BATTERY = "com.sundeep.groupsharing/battery_optimization";
 
     @Override
     public void configureFlutterEngine(FlutterEngine flutterEngine) {
         super.configureFlutterEngine(flutterEngine);
-        new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
+        new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL_LOCATION)
                 .setMethodCallHandler((call, result) -> {
                     if (call.method.equals("start")) {
                         String userId = call.argument("userId");
@@ -29,6 +30,23 @@ public class MainActivity extends FlutterActivity {
                         result.success(null);
                     } else {
                         result.notImplemented();
+                    }
+                });
+
+        // Battery optimization channel
+        new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL_BATTERY)
+                .setMethodCallHandler((call, result) -> {
+                    switch (call.method) {
+                        case "isBatteryOptimizationDisabled":
+                            result.success(BackgroundLocationService.isBatteryOptimizationDisabled(this));
+                            break;
+                        case "requestDisableBatteryOptimization":
+                            BackgroundLocationService.requestDisableBatteryOptimization(this);
+                            result.success(null);
+                            break;
+                        default:
+                            result.notImplemented();
+                            break;
                     }
                 });
     }
