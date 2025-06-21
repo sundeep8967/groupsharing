@@ -1,15 +1,21 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/location_model.dart';
 import 'firebase_service.dart';
 import 'device_info_service.dart';
 
+import 'package:flutter/services.dart';
+
 class LocationService {
+  final FirebaseDatabase _realtimeDb = FirebaseDatabase.instance;
   final FirebaseFirestore _firestore = FirebaseService.firestore;
-  StreamSubscription<Position>? _positionStream;
+  static StreamSubscription<Position>? _positionStream;
+  static const MethodChannel _bgChannel = MethodChannel('background_location');
   
   // Check if location services are enabled
   Future<bool> isLocationServiceEnabled() async {
@@ -93,8 +99,15 @@ class LocationService {
     // Configure location settings for background updates
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 10, // Update every 10 meters
+      distanceFilter: 25, // Update every ~25 meters to reduce redraws
     );
+
+    // Start Android background service as well
+    if (Platform.isAndroid) {
+      try {
+        await _bgChannel.invokeMethod('start', {'userId': userId});
+      } catch (_) {}
+    }
 
     // Start location stream
     _positionStream = Geolocator.getPositionStream(
@@ -115,9 +128,17 @@ class LocationService {
   }
 
   // Stop tracking
-  Future<void> stopTracking() async {
+  static Future<void> stopRealtimeLocationUpdates() async {
+    if (Platform.isAndroid) {
+      try { await _bgChannel.invokeMethod('stop'); } catch (_) {}
+    }
     await _positionStream?.cancel();
     _positionStream = null;
+  }
+
+  // Public wrapper for instance callers
+  Future<void> stopTracking() async {
+    await LocationService.stopRealtimeLocationUpdates();
   }
 
   // Update user's current location
@@ -164,6 +185,30 @@ class LocationService {
     }
   }
   
+  // Sync user's current location with Realtime Database (call this on login or app start)
+  /// Usage: await syncLocationOnAppStartOrLogin(userId);
+  Future<void> syncLocationOnAppStartOrLogin(String userId) async {
+    try {
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      await saveLocationToRealtimeDatabase(userId, position.latitude, position.longitude);
+    } catch (e) {
+      print('Error syncing location on app start/login: $e');
+    }
+  }
+
+  // Save latitude and longitude to Firebase Realtime Database
+  /// Usage: await saveLocationToRealtimeDatabase(userId, latitude, longitude);
+  Future<void> saveLocationToRealtimeDatabase(String userId, double latitude, double longitude) async {
+    try {
+      await _realtimeDb.ref('users/$userId/location').set({
+        'latitude': latitude,
+        'longitude': longitude,
+      });
+    } catch (e) {
+      print('Error saving location to Realtime Database: $e');
+    }
+  }
+
   // Calculate distance between two points
   double calculateDistance(LatLng point1, LatLng point2) {
     return const Distance().as(

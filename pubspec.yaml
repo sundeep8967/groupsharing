@@ -30,6 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  firebase_database: ^10.4.5
 
   # Core Flutter packages
   cupertino_icons: ^1.0.2
@@ -68,6 +69,8 @@ dependencies:
   google_sign_in: ^6.1.6
   firebase_messaging: ^14.7.10
   google_sign_in_web: ^0.12.1
+
+  # Device ringer mode (Android only)
   
   # State management
   provider: ^6.1.1

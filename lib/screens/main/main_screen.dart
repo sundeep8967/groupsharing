@@ -5,14 +5,18 @@ import 'package:share_plus/share_plus.dart';
 import 'package:groupsharing/widgets/modern_map.dart';
 import 'package:groupsharing/models/map_marker.dart';
 import 'package:groupsharing/services/deep_link_service.dart';
-import '../../providers/auth_provider.dart';
+import '../../providers/auth_provider.dart' as app_auth;
 import '../../providers/location_provider.dart';
 import '../friends/friends_family_screen.dart';
 import '../friends/add_friends_screen.dart';
 import '../profile/profile_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:groupsharing/services/location_service.dart';
+import 'package:groupsharing/services/device_info_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'notification_screen.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:async';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -39,6 +43,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   BuildContext? _locationDialogContext;
   
   bool _locationEnabled = true;
+  StreamSubscription<ServiceStatus>? _serviceStatusSub;
   
   static const List<Widget> _screens = [
     FriendsFamilyScreen(),
@@ -53,7 +58,24 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Listen to location service status changes
+    _serviceStatusSub = Geolocator.getServiceStatusStream().listen((status) {
+      if (mounted) {
+        setState(() => _locationEnabled = status == ServiceStatus.enabled);
+      }
+    });
+    // Set initial status
+    Geolocator.isLocationServiceEnabled().then((enabled) {
+      if (mounted) setState(() => _locationEnabled = enabled);
+    });
     
+    // Sync location on app open if user is authenticated
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser != null) {
+      LocationService().syncLocationOnAppStartOrLogin(firebaseUser.uid);
+      // Start real-time device status updates (battery & ringer mode)
+      DeviceInfoService.startRealtimeDeviceStatusUpdates(firebaseUser.uid);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeTracking();
       final locationProvider = Provider.of<LocationProvider>(context, listen: false);
@@ -81,11 +103,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       });
     });
 
-    final user = Provider.of<AuthProvider>(context, listen: false).user;
-    if (user != null) {
+    final appUser = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
+    if (appUser != null) {
       FirebaseFirestore.instance
         .collection('users')
-        .doc(user.uid)
+        .doc(appUser.uid)
         .collection('notifications')
         .where('seen', isEqualTo: false)
         .snapshots()
@@ -100,6 +122,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _serviceStatusSub?.cancel();
+    DeviceInfoService.stopRealtimeDeviceStatusUpdates();
     super.dispose();
   }
 
@@ -107,32 +131,25 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _initializeTracking();
-      _checkLocationEnabled();
     }
   }
 
   void _initializeTracking() {
     try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
       final locationProvider = Provider.of<LocationProvider>(context, listen: false);
 
-      if (authProvider.user != null) {
-        locationProvider.startTracking(authProvider.user!.uid);
+      final appUser = authProvider.user;
+      if (appUser != null) {
+        locationProvider.startTracking(appUser.uid);
       }
     } catch (e) {
       debugPrint('Error initializing tracking: $e');
     }
   }
 
-  Future<void> _checkLocationEnabled() async {
-    final enabled = await Geolocator.isLocationServiceEnabled();
-    if (mounted) setState(() => _locationEnabled = enabled);
-  }
-
   @override
   Widget build(BuildContext context) {
-    // Always check location status
-    _checkLocationEnabled();
     return Stack(
       children: [
         Scaffold(
@@ -236,7 +253,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildMapScreen() {
-    return Consumer2<LocationProvider, AuthProvider>(
+    return Consumer2<LocationProvider, app_auth.AuthProvider>(
       builder: (context, locationProvider, authProvider, _) {
         if (locationProvider.currentLocation == null) {
           return _buildLoadingScreen(locationProvider, authProvider);
@@ -258,24 +275,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           child: Stack(
             children: [
               Positioned.fill(
-                child: ModernMap(
-                  key: const ValueKey('main_map'),
-                  initialPosition: mapCenter,
-                  userLocation: currentLocation,
-                  markers: _cachedMarkers,
-                  showUserLocation: true,
-                  onMarkerTap: (marker) {
-                    _showMarkerDetails(context, marker);
-                  },
-                  onMapMoved: (center, zoom) {
-                    setState(() {
-                      _lastMapCenter = center;
-                      _lastMapZoom = zoom;
-                    });
-                  },
+                child: RepaintBoundary(
+                  child: ModernMap(
+                    key: const ValueKey('main_map'),
+                    initialPosition: mapCenter,
+                    userLocation: currentLocation,
+                    markers: _cachedMarkers,
+                    showUserLocation: true,
+                    onMarkerTap: (marker) => _showMarkerDetails(context, marker),
+                    onMapMoved: (center, zoom) {
+                      setState(() {
+                        _lastMapCenter = center;
+                        _lastMapZoom = zoom;
+                      });
+                    },
+                  ),
                 ),
               ),
-              
               // Location Info Toggle Button
               Positioned(
                 top: MediaQuery.of(context).padding.top + 80, // Below search bar
@@ -321,7 +337,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildLoadingScreen(LocationProvider locationProvider, AuthProvider authProvider) {
+  Widget _buildLoadingScreen(LocationProvider locationProvider, app_auth.AuthProvider authProvider) {
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: Center(
@@ -351,9 +367,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: () {
-                  if (authProvider.user != null) {
-                    locationProvider.startTracking(authProvider.user!.uid);
-                  }
+                  final appUser = authProvider.user;
+                    if (appUser != null) {
+                      locationProvider.startTracking(appUser.uid);
+                    }
                 },
                 child: const Text('Retry'),
               ),
@@ -520,7 +537,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildBottomControls(LocationProvider locationProvider, AuthProvider authProvider) {
+  Widget _buildBottomControls(LocationProvider locationProvider, app_auth.AuthProvider authProvider) {
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
@@ -577,12 +594,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             // Tracking toggle button
             ElevatedButton.icon(
               onPressed: () {
-                if (authProvider.user == null) return;
+                final appUser = authProvider.user;
+                if (appUser == null) return;
                 
                 if (locationProvider.isTracking) {
                   locationProvider.stopTracking();
                 } else {
-                  locationProvider.startTracking(authProvider.user!.uid);
+                  locationProvider.startTracking(appUser.uid);
                 }
               },
               icon: Icon(
