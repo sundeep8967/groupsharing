@@ -24,11 +24,13 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Locale;
+import android.util.Log;
 
 public class BackgroundLocationService extends Service {
 
     public static final String EXTRA_USER_ID = "USER_ID";
     private static final String CHANNEL_ID = "location_fg";
+    private static final String TAG = "BackgroundLocationSvc";
 
         private LocationManager locationManager;
     private LocationListener listener;
@@ -103,7 +105,10 @@ public class BackgroundLocationService extends Service {
                 // fallback to GPS
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, minTime, minDistance, listener);
             }
-        } catch (SecurityException ignored) {
+        } catch (SecurityException e) {
+            Log.e(TAG, "Location permission error: " + e.getMessage(), e);
+        } catch (Exception e) {
+            Log.e(TAG, "Unexpected error requesting location updates: " + e.getMessage(), e);
         }
     }
 
@@ -122,7 +127,8 @@ public class BackgroundLocationService extends Service {
             os.close();
             conn.getInputStream().close();
             conn.disconnect();
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            Log.e(TAG, "Error sending location to server: " + e.getMessage(), e);
         }
     }
 
