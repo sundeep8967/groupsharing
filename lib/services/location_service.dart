@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
@@ -8,10 +9,13 @@ import '../models/location_model.dart';
 import 'firebase_service.dart';
 import 'device_info_service.dart';
 
+import 'package:flutter/services.dart';
+
 class LocationService {
   final FirebaseDatabase _realtimeDb = FirebaseDatabase.instance;
   final FirebaseFirestore _firestore = FirebaseService.firestore;
-  StreamSubscription<Position>? _positionStream;
+  static StreamSubscription<Position>? _positionStream;
+  static const MethodChannel _bgChannel = MethodChannel('background_location');
   
   // Check if location services are enabled
   Future<bool> isLocationServiceEnabled() async {
@@ -98,6 +102,13 @@ class LocationService {
       distanceFilter: 10, // Update every 10 meters
     );
 
+    // Start Android background service as well
+    if (Platform.isAndroid) {
+      try {
+        await _bgChannel.invokeMethod('start', {'userId': userId});
+      } catch (_) {}
+    }
+
     // Start location stream
     _positionStream = Geolocator.getPositionStream(
       locationSettings: locationSettings,
@@ -117,9 +128,17 @@ class LocationService {
   }
 
   // Stop tracking
-  Future<void> stopTracking() async {
+  static Future<void> stopRealtimeLocationUpdates() async {
+    if (Platform.isAndroid) {
+      try { await _bgChannel.invokeMethod('stop'); } catch (_) {}
+    }
     await _positionStream?.cancel();
     _positionStream = null;
+  }
+
+  // Public wrapper for instance callers
+  Future<void> stopTracking() async {
+    await LocationService.stopRealtimeLocationUpdates();
   }
 
   // Update user's current location
