@@ -2,6 +2,13 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url "https://maven.transistorsoft.com/repository/maven-public"
+            credentials {
+                username = project.hasProperty('transistorsoft_username') ? project.property('transistorsoft_username') : ""
+                password = project.hasProperty('transistorsoft_password') ? project.property('transistorsoft_password') : ""
+            }
+        }
     }
     dependencies {
         classpath 'com.google.gms:google-services:4.4.0'
@@ -12,9 +19,15 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url "https://maven.transistorsoft.com/repository/maven-public"
+            credentials {
+                username = project.hasProperty('transistorsoft_username') ? project.property('transistorsoft_username') : ""
+                password = project.hasProperty('transistorsoft_password') ? project.property('transistorsoft_password') : ""
+            }
+        }
     }
 }
-
 rootProject.buildDir = "../build"
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"

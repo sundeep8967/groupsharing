@@ -60,12 +60,14 @@ dependencies:
   geocoding: ^2.1.1
   
   # Firebase packages for backend and real-time updates
-  firebase_core: ^2.24.2
-  firebase_auth: ^4.15.3
+  firebase_core: ^2.32.0
+  firebase_auth: ^4.17.0
   cloud_firestore: ^4.13.6
   firebase_storage: ^11.6.0
   app_links: ^6.2.0
-  google_sign_in: ^6.2.1
+  google_sign_in: ^6.1.6
+  firebase_messaging: ^14.7.10
+  google_sign_in_web: ^0.12.1
   
   # State management
   provider: ^6.1.1
@@ -74,7 +76,6 @@ dependencies:
   uuid: ^4.2.2
   intl: ^0.19.0
   shared_preferences: ^2.2.2
-  
   # UI packages
   google_fonts: ^6.1.0
   flutter_slidable: ^3.0.1
@@ -88,6 +89,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  mockito: ^5.4.4 # Added mockito for mocking classes
+  build_runner: ^2.4.8 # Added build_runner for code generation
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

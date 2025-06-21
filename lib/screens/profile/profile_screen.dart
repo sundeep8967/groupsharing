@@ -23,6 +23,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = false;
+  bool _isSigningOut = false;
   File? _imageFile;
 
   String _generateFriendCode(String uid) {
@@ -56,22 +57,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.exit_to_app, size: 24),
-            onPressed: () async {
-              try {
-                await Provider.of<app_auth.AuthProvider>(context, listen: false).signOut();
-                if (mounted) {
-                  Navigator.pushNamedAndRemoveUntil(
-                    context,
-                    '/welcome',
-                    (route) => false,
-                  );
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error signing out: ${e.toString()}')),
-                  );
-                }
+            onPressed: _isSigningOut ? null : () async {
+              setState(() => _isSigningOut = true);
+              final success = await Provider.of<app_auth.AuthProvider>(context, listen: false).signOut();
+              if (!mounted) return;
+              setState(() => _isSigningOut = false);
+              if (success) {
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  '/login',
+                  (route) => false,
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to sign out. Please try again.'),
+                    duration: Duration(seconds: 3),
+                  ),
+                );
               }
             },
             tooltip: 'Logout',
@@ -89,67 +91,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _buildProfileHeader(user, colorScheme),
                   const SizedBox(height: 24),
                   _buildSavedPlaces(theme),
-                  // Add extra space at the bottom
+                  const SizedBox(height: 24),
+                  // Removed delete account button from here
                   SizedBox(height: bottomPadding + 80), // Extra space for the button
                 ],
               ),
             ),
           ),
           // Compact Friend Code Section
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                // Friend Code
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Your Code',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _generateFriendCode(user?.uid ?? ''),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.2,
-                          color: theme.colorScheme.onSurface,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Share Button
-                FilledButton.tonalIcon(
-                  onPressed: _shareProfile,
-                  icon: const Icon(Icons.share_outlined, size: 18),
-                  label: const Text('Share'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          // (Removed as per user request)
+          // Place Delete Account button at the bottom
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+            child: _buildDeleteAccountButton(context),
           ),
         ],
       ),
@@ -640,4 +594,147 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // _getJoinedDate method removed as it's no longer used
+
+  Widget _buildDeleteAccountButton(BuildContext context) {
+    return ElevatedButton.icon(
+      icon: const Icon(Icons.delete_forever),
+      label: const Text('Delete Account'),
+      onPressed: _isLoading ? null : () => _showDeleteConfirmationDialog(context),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.red,
+        foregroundColor: Colors.white,
+        minimumSize: const Size(double.infinity, 50), // Make button wider
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+
+  // Show the initial delete confirmation dialog
+  Future<void> _showDeleteConfirmationDialog(BuildContext mainScreenContext) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Account'),
+        content: const Text(
+          'Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently lost.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    ) ?? false;
+    
+    if (!confirmed) return;
+    
+    // If user confirmed, proceed with deletion
+    await _handleDeleteAccount();
+  }
+  
+  // Handle the actual account deletion process
+  Future<void> _handleDeleteAccount() async {
+    if (!mounted) return;
+    
+    setState(() => _isLoading = true);
+    
+    try {
+      final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+      final result = await authProvider.deleteUserAccount();
+      
+      if (!mounted) return;
+      
+      if (result.success) {
+        // Account deleted successfully
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/login',
+          (route) => false,
+        );
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Account deleted successfully'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      } else if (result.requiresReauth) {
+        // Show re-authentication required
+        _showReauthDialog();
+      } else {
+        // Show error message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.error ?? 'Failed to delete account'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+  
+  // Show re-authentication dialog
+  void _showReauthDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Re-authentication Required'),
+        content: const Text(
+          'For security reasons, you need to sign in again before deleting your account.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _handleReauthentication();
+            },
+            child: const Text('Sign In Again'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+ // Handle re-authentication flow
+Future<void> _handleReauthentication() async {
+  final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+
+  // Optional: Check if already signed out before calling again
+  // If your AuthProvider tracks auth state, you could avoid unnecessary signOut calls
+  await authProvider.signOut(); // <--- Sign out before re-authentication
+
+  if (mounted) {
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/login',
+      (route) => false,
+    );
+  }
+}
+
 }
