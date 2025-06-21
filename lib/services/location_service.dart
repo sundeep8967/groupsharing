@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/location_model.dart';
@@ -8,6 +9,7 @@ import 'firebase_service.dart';
 import 'device_info_service.dart';
 
 class LocationService {
+  final FirebaseDatabase _realtimeDb = FirebaseDatabase.instance;
   final FirebaseFirestore _firestore = FirebaseService.firestore;
   StreamSubscription<Position>? _positionStream;
   
@@ -164,6 +166,30 @@ class LocationService {
     }
   }
   
+  // Sync user's current location with Realtime Database (call this on login or app start)
+  /// Usage: await syncLocationOnAppStartOrLogin(userId);
+  Future<void> syncLocationOnAppStartOrLogin(String userId) async {
+    try {
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      await saveLocationToRealtimeDatabase(userId, position.latitude, position.longitude);
+    } catch (e) {
+      print('Error syncing location on app start/login: $e');
+    }
+  }
+
+  // Save latitude and longitude to Firebase Realtime Database
+  /// Usage: await saveLocationToRealtimeDatabase(userId, latitude, longitude);
+  Future<void> saveLocationToRealtimeDatabase(String userId, double latitude, double longitude) async {
+    try {
+      await _realtimeDb.ref('users/$userId/location').set({
+        'latitude': latitude,
+        'longitude': longitude,
+      });
+    } catch (e) {
+      print('Error saving location to Realtime Database: $e');
+    }
+  }
+
   // Calculate distance between two points
   double calculateDistance(LatLng point1, LatLng point2) {
     return const Distance().as(

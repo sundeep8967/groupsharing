@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../providers/auth_provider.dart' as app_auth;
+import 'package:groupsharing/services/location_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../utils/theme.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -26,6 +28,11 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (result.success) {
+        // Sync location to Realtime Database after login
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await LocationService().syncLocationOnAppStartOrLogin(user.uid);
+        }
         // Navigate to main screen on success
         if (mounted) {
           Navigator.of(context).pushNamedAndRemoveUntil(
