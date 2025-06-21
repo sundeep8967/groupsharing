@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'services/geofence_service_helper.dart';
 import 'package:groupsharing/services/deep_link_service.dart';
 import 'package:groupsharing/models/map_marker.dart';
 import 'package:groupsharing/widgets/modern_map.dart';
@@ -80,6 +81,8 @@ class _LocationSharingPageState extends State<LocationSharingPage> {
       final locationProvider = Provider.of<LocationProvider>(context, listen: false);
 
       if (authProvider.user != null) {
+        // Initialise and start geofencing for this user
+        GeofenceHelper.initialize(authProvider.user!.uid).then((_) => GeofenceHelper.start());
         locationProvider.startTracking(authProvider.user!.uid);
       }
     });
@@ -101,8 +104,9 @@ class _LocationSharingPageState extends State<LocationSharingPage> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () {
-              // Stop tracking before signing out to avoid provider/context issues
+              // Stop services before sign-out
               Provider.of<LocationProvider>(context, listen: false).stopTracking();
+              GeofenceHelper.stop();
               Provider.of<AuthProvider>(context, listen: false).signOut();
             },
           ),
