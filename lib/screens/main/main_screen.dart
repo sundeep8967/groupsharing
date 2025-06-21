@@ -16,6 +16,7 @@ import 'package:groupsharing/services/device_info_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'notification_screen.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:async';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -42,6 +43,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   BuildContext? _locationDialogContext;
   
   bool _locationEnabled = true;
+  StreamSubscription<ServiceStatus>? _serviceStatusSub;
   
   static const List<Widget> _screens = [
     FriendsFamilyScreen(),
@@ -56,6 +58,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Listen to location service status changes
+    _serviceStatusSub = Geolocator.getServiceStatusStream().listen((status) {
+      if (mounted) {
+        setState(() => _locationEnabled = status == ServiceStatus.enabled);
+      }
+    });
+    // Set initial status
+    Geolocator.isLocationServiceEnabled().then((enabled) {
+      if (mounted) setState(() => _locationEnabled = enabled);
+    });
     
     // Sync location on app open if user is authenticated
     final firebaseUser = FirebaseAuth.instance.currentUser;
@@ -110,6 +122,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _serviceStatusSub?.cancel();
     DeviceInfoService.stopRealtimeDeviceStatusUpdates();
     super.dispose();
   }
@@ -118,7 +131,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _initializeTracking();
-      _checkLocationEnabled();
     }
   }
 
@@ -136,15 +148,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _checkLocationEnabled() async {
-    final enabled = await Geolocator.isLocationServiceEnabled();
-    if (mounted) setState(() => _locationEnabled = enabled);
-  }
-
   @override
   Widget build(BuildContext context) {
-    // Always check location status
-    _checkLocationEnabled();
     return Stack(
       children: [
         Scaffold(
