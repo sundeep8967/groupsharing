@@ -15,6 +15,10 @@ import androidx.core.app.NotificationCompat;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.location.Criteria;
+import android.os.PowerManager;
+import android.provider.Settings;
+import android.net.Uri;
+import android.app.Activity;
 
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -30,6 +34,28 @@ public class BackgroundLocationService extends Service {
     private LocationListener listener;
     private static final String FIREBASE_DB = "group-sharing-9d119";
     private String userId;
+
+    /**
+     * Checks if battery optimization is disabled for the app.
+     *
+     * @param context Application context.
+     * @return true if disabled, false otherwise.
+     */
+    public static boolean isBatteryOptimizationDisabled(Context context) {
+        PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        return pm != null && pm.isIgnoringBatteryOptimizations(context.getPackageName());
+    }
+
+    /**
+     * Prompts the user to disable battery optimization for the app.
+     *
+     * @param activity An Activity context to start the intent.
+     */
+    public static void requestDisableBatteryOptimization(Activity activity) {
+        Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+        intent.setData(Uri.parse("package:" + activity.getPackageName()));
+        activity.startActivity(intent);
+    }
 
     @Override
     public void onCreate() {
