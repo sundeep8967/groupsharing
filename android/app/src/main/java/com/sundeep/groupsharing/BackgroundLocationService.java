@@ -12,11 +12,9 @@ import android.os.IBinder;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
-import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationCallback;
-import com.google.android.gms.location.LocationRequest;
-import com.google.android.gms.location.LocationResult;
-import com.google.android.gms.location.LocationServices;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.location.Criteria;
 
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -28,15 +26,15 @@ public class BackgroundLocationService extends Service {
     public static final String EXTRA_USER_ID = "USER_ID";
     private static final String CHANNEL_ID = "location_fg";
 
-    private FusedLocationProviderClient fusedClient;
+        private LocationManager locationManager;
+    private LocationListener listener;
     private static final String FIREBASE_DB = "group-sharing-9d119";
-    private LocationCallback callback;
     private String userId;
 
     @Override
     public void onCreate() {
         super.onCreate();
-        fusedClient = LocationServices.getFusedLocationProviderClient(this);
+                locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         createNotificationChannel();
     }
 
@@ -53,22 +51,34 @@ public class BackgroundLocationService extends Service {
         return START_STICKY;
     }
 
-    private void startLocationUpdates() {
-        LocationRequest req = LocationRequest.create();
-        req.setInterval(10000);
-        req.setFastestInterval(5000);
-        req.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
-
-        callback = new LocationCallback() {
+        private void startLocationUpdates() {
+        listener = new LocationListener() {
             @Override
-            public void onLocationResult(LocationResult locationResult) {
-                if (locationResult == null) return;
-                for (Location loc : locationResult.getLocations()) {
-                    sendLocationToFirebase(loc);
-                }
+            public void onLocationChanged(Location location) {
+                sendLocationToFirebase(location);
             }
+            @Override public void onStatusChanged(String provider,int status,android.os.Bundle extras){}
+            @Override public void onProviderEnabled(String provider){}
+            @Override public void onProviderDisabled(String provider){}
         };
-        fusedClient.requestLocationUpdates(req, callback, null);
+
+        Criteria criteria = new Criteria();
+        criteria.setAccuracy(Criteria.ACCURACY_FINE);
+        criteria.setAltitudeRequired(false);
+        criteria.setBearingRequired(false);
+        criteria.setCostAllowed(false);
+        String provider = locationManager.getBestProvider(criteria, true);
+        long minTime = 10000; // 10s
+        float minDistance = 5; // meters
+        try {
+            if (provider != null) {
+                locationManager.requestLocationUpdates(provider, minTime, minDistance, listener);
+            } else {
+                // fallback to GPS
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, minTime, minDistance, listener);
+            }
+        } catch (SecurityException ignored) {
+        }
     }
 
     private void sendLocationToFirebase(Location loc) {
@@ -101,8 +111,8 @@ public class BackgroundLocationService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (fusedClient != null && callback != null) {
-            fusedClient.removeLocationUpdates(callback);
+                if (locationManager != null && listener != null) {
+            locationManager.removeUpdates(listener);
         }
     }
 
