@@ -99,7 +99,7 @@ class LocationService {
     // Configure location settings for background updates
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 10, // Update every 10 meters
+      distanceFilter: 25, // Update every ~25 meters to reduce redraws
     );
 
     // Start Android background service as well
