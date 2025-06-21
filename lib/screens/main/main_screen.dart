@@ -275,24 +275,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           child: Stack(
             children: [
               Positioned.fill(
-                child: ModernMap(
-                  key: const ValueKey('main_map'),
-                  initialPosition: mapCenter,
-                  userLocation: currentLocation,
-                  markers: _cachedMarkers,
-                  showUserLocation: true,
-                  onMarkerTap: (marker) {
-                    _showMarkerDetails(context, marker);
-                  },
-                  onMapMoved: (center, zoom) {
-                    setState(() {
-                      _lastMapCenter = center;
-                      _lastMapZoom = zoom;
-                    });
-                  },
+                child: RepaintBoundary(
+                  child: ModernMap(
+                    key: const ValueKey('main_map'),
+                    initialPosition: mapCenter,
+                    userLocation: currentLocation,
+                    markers: _cachedMarkers,
+                    showUserLocation: true,
+                    onMarkerTap: (marker) => _showMarkerDetails(context, marker),
+                    onMapMoved: (center, zoom) {
+                      setState(() {
+                        _lastMapCenter = center;
+                        _lastMapZoom = zoom;
+                      });
+                    },
+                  ),
                 ),
               ),
-              
               // Location Info Toggle Button
               Positioned(
                 top: MediaQuery.of(context).padding.top + 80, // Below search bar
