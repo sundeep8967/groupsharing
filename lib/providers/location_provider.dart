@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/location_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -36,6 +37,10 @@ class LocationProvider with ChangeNotifier {
   // Start tracking location
   Future<void> startTracking(String userId) async {
     if (_isTracking) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('location_sharing_enabled', true);
+    await prefs.setString('user_id', userId);
 
     try {
       _error = null;
@@ -160,6 +165,9 @@ class LocationProvider with ChangeNotifier {
     await _locationService.stopTracking();
     _locationSubscription = null;
     _isTracking = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('location_sharing_enabled', false);
+    await prefs.remove('user_id');
     notifyListeners();
   }
 
