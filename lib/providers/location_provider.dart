@@ -52,15 +52,22 @@ class LocationProvider with ChangeNotifier {
       
       // If location sharing was enabled and we have a user ID, restart tracking
       if (isLocationSharingEnabled && savedUserId != null) {
+        // Update Firebase status immediately
+        _updateLocationSharingStatus(savedUserId, true);
+        
         // Start tracking in the background
         Future.delayed(const Duration(milliseconds: 100), () {
           startTracking(savedUserId).catchError((e) {
             debugPrint('Error restarting location tracking: $e');
-            // If restart fails, set tracking to false
+            // If restart fails, set tracking to false and update Firebase
             _isTracking = false;
+            _updateLocationSharingStatus(savedUserId, false);
             notifyListeners();
           });
         });
+      } else if (savedUserId != null) {
+        // Ensure Firebase status is set to false if not tracking
+        _updateLocationSharingStatus(savedUserId, false);
       }
       
     } catch (e) {
@@ -89,6 +96,9 @@ class LocationProvider with ChangeNotifier {
     } catch (e) {
       debugPrint('Error saving preferences: $e');
     }
+
+    // Update Firebase status immediately for real-time status
+    _updateLocationSharingStatus(userId, true);
 
     // Do the heavy work in the background
     _startTrackingInBackground(userId);
@@ -229,6 +239,13 @@ class LocationProvider with ChangeNotifier {
     _error = null;
     notifyListeners();
 
+    // Update Firebase status immediately for real-time status
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('user_id');
+    if (userId != null) {
+      _updateLocationSharingStatus(userId, false);
+    }
+
     // Do cleanup in background
     _stopTrackingInBackground();
   }
@@ -306,6 +323,21 @@ class LocationProvider with ChangeNotifier {
     } catch (e) {
       _error = 'Failed to get address: ${e.toString()}';
       return {};
+    }
+  }
+
+  // Update location sharing status in Firebase for real-time status
+  Future<void> _updateLocationSharingStatus(String userId, bool isSharing) async {
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(userId).update({
+        'locationSharingEnabled': isSharing,
+        'locationSharingUpdatedAt': FieldValue.serverTimestamp(),
+        'lastOnline': FieldValue.serverTimestamp(),
+        if (!isSharing) 'location': null, // Clear location when sharing is disabled
+      });
+      debugPrint('Updated location sharing status: $isSharing for user: $userId');
+    } catch (e) {
+      debugPrint('Error updating location sharing status: $e');
     }
   }
 
