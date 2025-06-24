@@ -140,7 +140,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final locationProvider = Provider.of<LocationProvider>(context, listen: false);
 
       final appUser = authProvider.user;
-      if (appUser != null) {
+      // Only initialize if provider is initialized and not already tracking
+      if (appUser != null && locationProvider.isInitialized && !locationProvider.isTracking) {
+        // Check if user previously had location sharing enabled
         locationProvider.startTracking(appUser.uid);
       }
     } catch (e) {
