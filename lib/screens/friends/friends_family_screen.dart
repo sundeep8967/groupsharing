@@ -84,7 +84,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.location_on_outlined),
+                        icon: _buildGoogleMapsStyleIcon(),
                         onPressed: friend.lastLocation != null
                             ? () async {
                                 final lat = friend.lastLocation!.latitude;
@@ -123,6 +123,46 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     if (friend.lastSeen == null) return false;
     // Consider a threshold, e.g., 5 minutes for "online"
     return DateTime.now().difference(friend.lastSeen!).inMinutes < 5;
+  }
+
+  Widget _buildGoogleMapsStyleIcon() {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF4285F4), // Google Blue
+            Color(0xFF1A73E8), // Darker Google Blue
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4285F4).withOpacity(0.4),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+            spreadRadius: 1,
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.white.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: const Icon(
+        Icons.location_on,
+        color: Colors.white,
+        size: 20,
+      ),
+    );
   }
 }
 
