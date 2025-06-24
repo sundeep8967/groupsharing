@@ -14,6 +14,7 @@ class LocationProvider with ChangeNotifier {
   LatLng? _currentLocation;
   List<String> _nearbyUsers = [];
   bool _isTracking = false;
+  bool _isInitialized = false;
   String? _error;
   String _status = 'Initializing...';
   String? _currentAddress;
@@ -26,6 +27,7 @@ class LocationProvider with ChangeNotifier {
   LatLng? get currentLocation => _currentLocation;
   List<String> get nearbyUsers => _nearbyUsers;
   bool get isTracking => _isTracking;
+  bool get isInitialized => _isInitialized;
   String? get error => _error;
   String get status => _status;
   String? get currentAddress => _currentAddress;
@@ -34,17 +36,68 @@ class LocationProvider with ChangeNotifier {
   String? get postalCode => _postalCode;
   Map<String, LatLng> get userLocations => _userLocations;
 
+  // Initialize provider with saved state
+  Future<void> initialize() async {
+    if (_isInitialized) return;
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final isLocationSharingEnabled = prefs.getBool('location_sharing_enabled') ?? false;
+      final savedUserId = prefs.getString('user_id');
+      
+      // Set the tracking state immediately to prevent flickering
+      _isTracking = isLocationSharingEnabled;
+      _isInitialized = true;
+      notifyListeners();
+      
+      // If location sharing was enabled and we have a user ID, restart tracking
+      if (isLocationSharingEnabled && savedUserId != null) {
+        // Start tracking in the background
+        Future.delayed(const Duration(milliseconds: 100), () {
+          startTracking(savedUserId).catchError((e) {
+            debugPrint('Error restarting location tracking: $e');
+            // If restart fails, set tracking to false
+            _isTracking = false;
+            notifyListeners();
+          });
+        });
+      }
+      
+    } catch (e) {
+      debugPrint('Error initializing LocationProvider: $e');
+      _isInitialized = true;
+      _isTracking = false;
+      notifyListeners();
+    }
+  }
+
   // Start tracking location
   Future<void> startTracking(String userId) async {
     if (_isTracking) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('location_sharing_enabled', true);
-    await prefs.setString('user_id', userId);
+    // Set tracking to true IMMEDIATELY for instant UI response
+    _isTracking = true;
+    _error = null;
+    _status = 'Starting location sharing...';
+    notifyListeners();
 
+    // Save preference immediately
     try {
-      _error = null;
-      _status = 'Getting location...';
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('location_sharing_enabled', true);
+      await prefs.setString('user_id', userId);
+    } catch (e) {
+      debugPrint('Error saving preferences: $e');
+    }
+
+    // Do the heavy work in the background
+    _startTrackingInBackground(userId);
+  }
+
+  // Background method to handle the actual location tracking setup
+  Future<void> _startTrackingInBackground(String userId) async {
+    try {
+      _status = 'Checking location services...';
       notifyListeners();
 
       // Check if location services are enabled
@@ -52,15 +105,22 @@ class LocationProvider with ChangeNotifier {
       if (!serviceEnabled) {
         _error = 'Location services are disabled';
         _status = 'Location services are disabled';
+        _isTracking = false; // Revert if services are disabled
         notifyListeners();
         if (onLocationServiceDisabled != null) onLocationServiceDisabled!();
         return;
       }
 
+      _status = 'Getting location permissions...';
+      notifyListeners();
+
       LatLng? lastLocation;
       DateTime lastUpdate = DateTime.now();
       const double minDistance = 20.0;
       const Duration minInterval = Duration(seconds: 5);
+
+      _status = 'Starting location tracking...';
+      notifyListeners();
 
       _locationSubscription = await _locationService.startTracking(
         userId,
@@ -79,7 +139,7 @@ class LocationProvider with ChangeNotifier {
             lastUpdate = now;
             _currentLocation = location;
             _userLocations[userId] = location;
-            _status = 'Location updated';
+            _status = 'Location sharing active';
             await _getAddressFromCoordinates(location.latitude, location.longitude);
             await FirebaseFirestore.instance.collection('users').doc(userId).update({
               'location': {'lat': location.latitude, 'lng': location.longitude, 'updatedAt': FieldValue.serverTimestamp()},
@@ -89,7 +149,9 @@ class LocationProvider with ChangeNotifier {
           }
         },
       );
-      _isTracking = true;
+
+      _status = 'Location sharing active';
+      notifyListeners();
 
       // Listen for nearby users and their locations
       _locationService.getNearbyUsers(userId, 5.0).listen((users) async {
@@ -123,7 +185,7 @@ class LocationProvider with ChangeNotifier {
       _error = e.toString();
       _status = 'Error: ${e.toString()}';
       notifyListeners();
-      rethrow;
+      debugPrint('Error in background tracking: $e');
     }
   }
 
@@ -161,14 +223,40 @@ class LocationProvider with ChangeNotifier {
 
   // Stop tracking location
   Future<void> stopTracking() async {
-    await _locationSubscription?.cancel();
-    await _locationService.stopTracking();
-    _locationSubscription = null;
+    // Set tracking to false IMMEDIATELY for instant UI response
     _isTracking = false;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('location_sharing_enabled', false);
-    await prefs.remove('user_id');
+    _status = 'Location sharing stopped';
+    _error = null;
     notifyListeners();
+
+    // Do cleanup in background
+    _stopTrackingInBackground();
+  }
+
+  // Background method to handle cleanup
+  Future<void> _stopTrackingInBackground() async {
+    try {
+      await _locationSubscription?.cancel();
+      await _locationService.stopTracking();
+      _locationSubscription = null;
+      
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('location_sharing_enabled', false);
+      await prefs.remove('user_id');
+      
+      // Clear location data
+      _currentLocation = null;
+      _nearbyUsers.clear();
+      _userLocations.clear();
+      _currentAddress = null;
+      _city = null;
+      _country = null;
+      _postalCode = null;
+      
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error stopping tracking: $e');
+    }
   }
 
   // Get last known location

@@ -42,7 +42,14 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
-        ChangeNotifierProvider(create: (_) => LocationProvider()),
+        ChangeNotifierProvider(
+          create: (_) {
+            final locationProvider = LocationProvider();
+            // Initialize the provider with saved state
+            locationProvider.initialize();
+            return locationProvider;
+          },
+        ),
       ],
       child: MaterialApp(
         title: 'Location Sharing',

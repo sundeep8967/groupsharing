@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../../providers/auth_provider.dart' as app_auth;
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/friend_service.dart'; // Adjust path if necessary
@@ -26,8 +27,48 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Friends & Family'),
+        title: const Text(
+          'Friends & Family',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+          ),
+        ),
         centerTitle: true,
+        elevation: 0,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        surfaceTintColor: Colors.transparent,
+        actions: [
+          Consumer<LocationProvider>(
+            builder: (context, locationProvider, child) {
+              // Show loading state until provider is initialized
+              if (!locationProvider.isInitialized) {
+                return Container(
+                  width: 140,
+                  height: 40,
+                  margin: const EdgeInsets.only(right: 16.0, top: 8, bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: Colors.grey.withOpacity(0.3),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                );
+              }
+              
+              return _buildLocationToggle(locationProvider, user);
+            },
+          ),
+        ],
       ),
       body: StreamBuilder<List<UserModel>>(
         stream: _friendService.getFriends(user.uid),
@@ -123,6 +164,95 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     if (friend.lastSeen == null) return false;
     // Consider a threshold, e.g., 5 minutes for "online"
     return DateTime.now().difference(friend.lastSeen!).inMinutes < 5;
+  }
+
+  Widget _buildLocationToggle(LocationProvider locationProvider, firebase_auth.User user) {
+    final isOn = locationProvider.isTracking;
+    
+    return Container(
+      width: 120,
+      height: 36,
+      margin: const EdgeInsets.only(right: 16, top: 6, bottom: 6),
+      decoration: BoxDecoration(
+        color: isOn ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isOn ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          // Icon and text
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(left: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isOn ? Icons.location_on : Icons.location_off,
+                    size: 14,
+                    color: isOn ? Colors.green : Colors.grey[600],
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    isOn ? 'ON' : 'OFF',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: isOn ? Colors.green : Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Switch
+          Transform.scale(
+            scale: 0.7,
+            child: Switch(
+              value: isOn,
+              onChanged: (value) => _handleToggle(value, locationProvider, user),
+              activeColor: Colors.green,
+              activeTrackColor: Colors.green.withOpacity(0.3),
+              inactiveThumbColor: Colors.grey[400],
+              inactiveTrackColor: Colors.grey[300],
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleToggle(bool value, LocationProvider locationProvider, firebase_auth.User user) {
+    if (value) {
+      locationProvider.startTracking(user.uid);
+      _showSnackBar('Location sharing turned ON', Colors.green, Icons.check_circle);
+    } else {
+      locationProvider.stopTracking();
+      _showSnackBar('Location sharing turned OFF', Colors.orange, Icons.location_off);
+    }
+  }
+
+  void _showSnackBar(String message, Color color, IconData icon) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            Text(message),
+          ],
+        ),
+        duration: const Duration(seconds: 2),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
   }
 
   Widget _buildGoogleMapsStyleIcon() {
