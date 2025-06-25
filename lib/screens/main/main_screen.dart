@@ -87,14 +87,38 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             barrierDismissible: false,
             builder: (dialogContext) {
               _locationDialogContext = dialogContext;
-              return const AlertDialog(
-                title: Text('Location is Off'),
-                content: Text('Location services are disabled. Please turn on location to use this app.'),
+              return AlertDialog(
+                title: const Text('Location is Off'),
+                content: const Text('Location services are disabled. You now appear offline to your friends. Location sharing will resume automatically when you turn location back on.'),
+                actions: [
+                  TextButton(
+                    onPressed: () async {
+                      await Geolocator.openLocationSettings();
+                    },
+                    child: const Text('Open Settings'),
+                  ),
+                ],
               );
             },
           );
         }
       };
+      
+      locationProvider.onLocationServiceEnabled = () {
+        if (mounted && _locationDialogContext != null) {
+          Navigator.of(_locationDialogContext!).pop();
+          _locationDialogContext = null;
+          
+          // Show a brief success message
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Location services enabled - you are now online'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      };
+      
       // Listen for location service enabled
       locationProvider.addListener(() async {
         if (locationProvider.error == null && _locationDialogContext != null) {
