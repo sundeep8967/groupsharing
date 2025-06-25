@@ -44,6 +44,10 @@ class LocationProvider with ChangeNotifier {
   bool _wasTrackingBeforeServiceDisabled = false;
   String? _userIdForResumption;
   
+  // Heartbeat mechanism to detect app uninstall
+  Timer? _heartbeatTimer;
+  static const Duration _heartbeatInterval = Duration(seconds: 30); // Shorter interval for faster detection
+  
   // Debounce timer to prevent excessive notifications
   Timer? _notificationDebounceTimer;
 
@@ -306,7 +310,9 @@ class LocationProvider with ChangeNotifier {
       await _realtimeDb.ref('users/$userId').update({
         'locationSharingEnabled': true,
         'locationServiceDisabled': false,
+        'appUninstalled': false,
         'lastSeen': ServerValue.timestamp,
+        'lastHeartbeat': ServerValue.timestamp,
       });
       _log('Updated Realtime DB user status to online');
       
@@ -314,7 +320,9 @@ class LocationProvider with ChangeNotifier {
       await FirebaseFirestore.instance.collection('users').doc(userId).update({
         'locationSharingEnabled': true,
         'locationServiceDisabled': false,
+        'appUninstalled': false,
         'lastOnline': FieldValue.serverTimestamp(),
+        'lastHeartbeat': FieldValue.serverTimestamp(),
       });
       _log('Updated Firestore user status to online');
       
@@ -324,6 +332,61 @@ class LocationProvider with ChangeNotifier {
     } catch (e) {
       _log('Error marking user as online: $e');
     }
+  }
+
+  // Start heartbeat mechanism to detect app uninstall
+  void _startHeartbeat(String userId) {
+    _log('Starting heartbeat for user: ${userId.substring(0, 8)}');
+    
+    // Cancel existing heartbeat
+    _heartbeatTimer?.cancel();
+    
+    // Start new heartbeat timer
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (timer) {
+      if (_mounted && _isTracking) {
+        _sendHeartbeat(userId);
+      } else {
+        timer.cancel();
+      }
+    });
+    
+    // Send initial heartbeat
+    _sendHeartbeat(userId);
+  }
+
+  // Send heartbeat to indicate app is still running
+  Future<void> _sendHeartbeat(String userId) async {
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      
+      // Update heartbeat in Realtime Database with actual timestamp
+      await _realtimeDb.ref('users/$userId/lastHeartbeat').set(now);
+      
+      // Also update other status fields
+      await _realtimeDb.ref('users/$userId').update({
+        'lastHeartbeat': now,
+        'appUninstalled': false,
+        'lastSeen': ServerValue.timestamp,
+      });
+      
+      // Update heartbeat in Firestore
+      await FirebaseFirestore.instance.collection('users').doc(userId).update({
+        'lastHeartbeat': FieldValue.serverTimestamp(),
+        'appUninstalled': false, // Explicitly mark as not uninstalled
+        'lastSeen': FieldValue.serverTimestamp(),
+      });
+      
+      _log('Sent heartbeat for user: ${userId.substring(0, 8)} at $now');
+    } catch (e) {
+      _log('Error sending heartbeat: $e');
+    }
+  }
+
+  // Stop heartbeat mechanism
+  void _stopHeartbeat() {
+    _log('Stopping heartbeat');
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
   }
 
   // Debounced notification to prevent excessive rebuilds
@@ -600,19 +663,48 @@ class LocationProvider with ChangeNotifier {
         if (usersData != null) {
           final updatedSharingStatus = <String, bool>{..._userSharingStatus};
           bool hasChanges = false;
+          final now = DateTime.now().millisecondsSinceEpoch;
           
           for (final entry in usersData.entries) {
             final userId = entry.key as String;
             final userData = entry.value as Map<dynamic, dynamic>?;
             
-            if (userData != null && userData.containsKey('locationSharingEnabled')) {
-              final isSharing = userData['locationSharingEnabled'] == true;
+            if (userData != null) {
+              // Check if app was uninstalled
+              final appUninstalled = userData['appUninstalled'] == true;
+              final locationSharingEnabled = userData['locationSharingEnabled'] == true;
+              
+              // Check heartbeat to detect app uninstall
+              bool isAppActive = true;
+              if (locationSharingEnabled && userData.containsKey('lastHeartbeat')) {
+                final lastHeartbeat = userData['lastHeartbeat'] as int?;
+                if (lastHeartbeat != null) {
+                  final timeSinceHeartbeat = now - lastHeartbeat;
+                  // If no heartbeat for more than 2 minutes, consider app uninstalled
+                  if (timeSinceHeartbeat > 120000) { // 2 minutes in milliseconds
+                    isAppActive = false;
+                    _log('User ${userId.substring(0, 8)} heartbeat stale (${timeSinceHeartbeat}ms ago) - marking as offline');
+                    
+                    // Mark as uninstalled in database
+                    _markUserAsUninstalledDueToStaleHeartbeat(userId);
+                  }
+                }
+              }
+              
+              final isSharing = locationSharingEnabled && !appUninstalled && isAppActive;
               
               // Only update if status actually changed
               if (updatedSharingStatus[userId] != isSharing) {
                 updatedSharingStatus[userId] = isSharing;
                 hasChanges = true;
-                _log('User ${userId.substring(0, 8)} sharing status changed to: $isSharing');
+                
+                if (appUninstalled || !isAppActive) {
+                  _log('User ${userId.substring(0, 8)} is offline (uninstalled: $appUninstalled, inactive: ${!isAppActive})');
+                  // Remove from locations as well
+                  _userLocations.remove(userId);
+                } else {
+                  _log('User ${userId.substring(0, 8)} sharing status changed to: $isSharing');
+                }
               }
             }
           }
@@ -627,6 +719,35 @@ class LocationProvider with ChangeNotifier {
     }, onError: (error) {
       _log('ERROR listening to realtime user status: $error');
     });
+  }
+
+  // Mark user as uninstalled due to stale heartbeat
+  Future<void> _markUserAsUninstalledDueToStaleHeartbeat(String userId) async {
+    try {
+      // Update Realtime Database to mark as uninstalled
+      await _realtimeDb.ref('users/$userId').update({
+        'locationSharingEnabled': false,
+        'appUninstalled': true,
+        'lastSeen': ServerValue.timestamp,
+        'uninstallReason': 'stale_heartbeat',
+      });
+      
+      // Remove from locations
+      await _realtimeDb.ref('locations/$userId').remove();
+      
+      // Update Firestore as well
+      await FirebaseFirestore.instance.collection('users').doc(userId).update({
+        'locationSharingEnabled': false,
+        'appUninstalled': true,
+        'location': null,
+        'lastSeen': FieldValue.serverTimestamp(),
+        'uninstallReason': 'stale_heartbeat',
+      });
+      
+      _log('Marked user ${userId.substring(0, 8)} as uninstalled due to stale heartbeat');
+    } catch (e) {
+      _log('Error marking user as uninstalled due to stale heartbeat: $e');
+    }
   }
 
   // Start tracking location
@@ -666,6 +787,9 @@ class LocationProvider with ChangeNotifier {
 
     // Update Firebase status immediately for INSTANT real-time status
     _updateLocationSharingStatus(userId, true);
+
+    // Start heartbeat to detect app uninstall
+    _startHeartbeat(userId);
 
     // Do the heavy work in the background
     _startTrackingInBackground(userId);
@@ -816,6 +940,9 @@ class LocationProvider with ChangeNotifier {
       await _locationService.stopTracking();
       _locationSubscription = null;
       
+      // Stop heartbeat mechanism
+      _stopHeartbeat();
+      
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('location_sharing_enabled', false);
       
@@ -918,10 +1045,71 @@ class LocationProvider with ChangeNotifier {
     }
   }
 
+  // Clean up user data when app is being uninstalled or permanently closed
+  Future<void> cleanupUserData() async {
+    _log('=== CLEANUP USER DATA CALLED ===');
+    try {
+      final userId = await _getCurrentUserId();
+      if (userId != null) {
+        _log('Cleaning up data for user: ${userId.substring(0, 8)}');
+        
+        // Mark user as offline and clear all location data
+        await _markUserAsOfflineForUninstall(userId);
+        
+        // Clear local preferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.clear();
+        _log('Cleared local preferences');
+      }
+    } catch (e) {
+      _log('Error during cleanup: $e');
+    }
+  }
+
+  // Mark user as offline specifically for app uninstall/removal
+  Future<void> _markUserAsOfflineForUninstall(String userId) async {
+    _log('Marking user as offline for app uninstall: ${userId.substring(0, 8)}');
+    try {
+      // Remove from Realtime Database locations (makes user appear offline immediately)
+      await _realtimeDb.ref('locations/$userId').remove();
+      _log('Removed user from Realtime DB locations');
+      
+      // Update Realtime Database status to indicate app was uninstalled
+      await _realtimeDb.ref('users/$userId').update({
+        'locationSharingEnabled': false,
+        'appUninstalled': true,
+        'lastSeen': ServerValue.timestamp,
+        'appLastActive': ServerValue.timestamp,
+      });
+      _log('Updated Realtime DB user status for uninstall');
+      
+      // Update Firestore to mark as offline due to uninstall
+      await FirebaseFirestore.instance.collection('users').doc(userId).update({
+        'locationSharingEnabled': false,
+        'appUninstalled': true,
+        'location': null, // Clear location data
+        'lastSeen': FieldValue.serverTimestamp(),
+        'appLastActive': FieldValue.serverTimestamp(),
+        'lastOnline': FieldValue.serverTimestamp(),
+      });
+      _log('Updated Firestore user status for uninstall');
+      
+    } catch (e) {
+      _log('Error marking user as offline for uninstall: $e');
+    }
+  }
+
   @override
   void dispose() {
     _log('=== DISPOSE CALLED ===');
     _mounted = false; // Mark as unmounted first
+    
+    // Stop heartbeat mechanism
+    _stopHeartbeat();
+    
+    // Clean up user data when app is being disposed
+    cleanupUserData();
+    
     _notificationDebounceTimer?.cancel(); // Cancel debounce timer
     _locationSubscription?.cancel();
     _friendsLocationSubscription?.cancel();
