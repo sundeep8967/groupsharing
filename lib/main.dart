@@ -35,10 +35,73 @@ void main() async {
   runApp(MyApp(isOnboardingComplete: isOnboardingComplete));
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   final bool isOnboardingComplete;
   
   const MyApp({super.key, required this.isOnboardingComplete});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  LocationProvider? _locationProvider;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    // Handle app lifecycle changes
+    switch (state) {
+      case AppLifecycleState.detached:
+        // App is being terminated - clean up user data
+        _handleAppTermination();
+        break;
+      case AppLifecycleState.paused:
+        // App is paused but not terminated
+        _handleAppPaused();
+        break;
+      case AppLifecycleState.resumed:
+        // App is resumed
+        _handleAppResumed();
+        break;
+      case AppLifecycleState.inactive:
+        // App is inactive
+        break;
+      case AppLifecycleState.hidden:
+        // App is hidden
+        break;
+    }
+  }
+
+  void _handleAppTermination() {
+    debugPrint('=== APP TERMINATION DETECTED ===');
+    // Clean up user data when app is being terminated/uninstalled
+    _locationProvider?.cleanupUserData();
+  }
+
+  void _handleAppPaused() {
+    debugPrint('=== APP PAUSED ===');
+    // App is paused but not terminated - no cleanup needed
+  }
+
+  void _handleAppResumed() {
+    debugPrint('=== APP RESUMED ===');
+    // App is resumed - reinitialize if needed
+    _locationProvider?.initialize();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +111,8 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) {
             final locationProvider = LocationProvider();
+            // Store reference for lifecycle management
+            _locationProvider = locationProvider;
             // Initialize the provider with saved state
             locationProvider.initialize();
             return locationProvider;
@@ -63,7 +128,7 @@ class MyApp extends StatelessWidget {
         ),
         home: Consumer<AuthProvider>(
           builder: (context, auth, _) {
-            if (!isOnboardingComplete) {
+            if (!widget.isOnboardingComplete) {
               return const OnboardingScreen();
             }
             return auth.isAuthenticated
