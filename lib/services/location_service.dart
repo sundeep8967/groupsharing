@@ -9,6 +9,7 @@ import '../models/location_model.dart';
 import 'firebase_service.dart';
 import 'device_info_service.dart';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class LocationService {
@@ -93,7 +94,7 @@ class LocationService {
       onLocationUpdate(initialLatLng);
       await updateUserLocation(userId, initialLatLng);
     } catch (e) {
-      print('Error getting initial position: $e');
+      debugPrint('Error getting initial position: $e');
     }
 
     // Configure location settings for background updates
@@ -102,11 +103,16 @@ class LocationService {
       distanceFilter: 25, // Update every ~25 meters to reduce redraws
     );
 
-    // Start Android background service as well
+    // Background service disabled - using Flutter-based real-time updates instead
+    // The enhanced LocationProvider now handles all Firebase updates directly
     if (Platform.isAndroid) {
       try {
-        await _bgChannel.invokeMethod('start', {'userId': userId});
-      } catch (_) {}
+        // Temporarily disabled to prevent crashes
+        // await _bgChannel.invokeMethod('start', {'userId': userId});
+        debugPrint('Background service disabled - using Flutter real-time updates');
+      } catch (e) {
+        debugPrint('Background service error (ignored): $e');
+      }
     }
 
     // Start location stream
@@ -130,7 +136,13 @@ class LocationService {
   // Stop tracking
   static Future<void> stopRealtimeLocationUpdates() async {
     if (Platform.isAndroid) {
-      try { await _bgChannel.invokeMethod('stop'); } catch (_) {}
+      try { 
+        // Temporarily disabled to prevent crashes
+        // await _bgChannel.invokeMethod('stop'); 
+        debugPrint('Background service stop disabled - using Flutter real-time updates');
+      } catch (e) {
+        debugPrint('Background service stop error (ignored): $e');
+      }
     }
     await _positionStream?.cancel();
     _positionStream = null;
@@ -173,14 +185,29 @@ class LocationService {
   Future<LatLng?> getLastKnownLocation(String userId) async {
     try {
       final userDoc = await _firestore.collection('users').doc(userId).get();
-      if (!userDoc.exists || !userDoc.data()!.containsKey('lastLocation')) {
+      if (!userDoc.exists) {
         return null;
       }
 
-      final GeoPoint geoPoint = userDoc.data()!['lastLocation'] as GeoPoint;
-      return LatLng(geoPoint.latitude, geoPoint.longitude);
+      final data = userDoc.data()!;
+      
+      // Check for 'location' field first (current format)
+      if (data.containsKey('location') && data['location'] != null) {
+        final locationData = data['location'] as Map<String, dynamic>;
+        if (locationData.containsKey('lat') && locationData.containsKey('lng')) {
+          return LatLng(locationData['lat'], locationData['lng']);
+        }
+      }
+      
+      // Fallback to 'lastLocation' field (legacy format)
+      if (data.containsKey('lastLocation')) {
+        final GeoPoint geoPoint = data['lastLocation'] as GeoPoint;
+        return LatLng(geoPoint.latitude, geoPoint.longitude);
+      }
+
+      return null;
     } catch (e) {
-      print('Error getting last known location: $e');
+      debugPrint('Error getting last known location: $e');
       return null;
     }
   }
@@ -192,7 +219,7 @@ class LocationService {
       Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       await saveLocationToRealtimeDatabase(userId, position.latitude, position.longitude);
     } catch (e) {
-      print('Error syncing location on app start/login: $e');
+      debugPrint('Error syncing location on app start/login: $e');
     }
   }
 
@@ -205,7 +232,7 @@ class LocationService {
         'longitude': longitude,
       });
     } catch (e) {
-      print('Error saving location to Realtime Database: $e');
+      debugPrint('Error saving location to Realtime Database: $e');
     }
   }
 
@@ -227,22 +254,40 @@ class LocationService {
         orElse: () => throw Exception('Current user not found'),
       );
 
-      final GeoPoint? currentUserLocation = 
-          currentUserDoc.data()['lastLocation'] as GeoPoint?;
-      if (currentUserLocation == null) return nearbyUsers;
-
-      final currentUserLatLng = 
-          LatLng(currentUserLocation.latitude, currentUserLocation.longitude);
+      // Get current user location using the correct field
+      LatLng? currentUserLatLng;
+      final currentUserData = currentUserDoc.data();
+      
+      if (currentUserData.containsKey('location') && currentUserData['location'] != null) {
+        final locationData = currentUserData['location'] as Map<String, dynamic>;
+        if (locationData.containsKey('lat') && locationData.containsKey('lng')) {
+          currentUserLatLng = LatLng(locationData['lat'], locationData['lng']);
+        }
+      } else if (currentUserData.containsKey('lastLocation')) {
+        final GeoPoint geoPoint = currentUserData['lastLocation'] as GeoPoint;
+        currentUserLatLng = LatLng(geoPoint.latitude, geoPoint.longitude);
+      }
+      
+      if (currentUserLatLng == null) return nearbyUsers;
 
       for (final doc in snapshot.docs) {
         if (doc.id == userId) continue;
 
-        final GeoPoint? otherUserLocation = 
-            doc.data()['lastLocation'] as GeoPoint?;
-        if (otherUserLocation == null) continue;
-
-        final otherUserLatLng = 
-            LatLng(otherUserLocation.latitude, otherUserLocation.longitude);
+        // Get other user location using the correct field
+        LatLng? otherUserLatLng;
+        final otherUserData = doc.data();
+        
+        if (otherUserData.containsKey('location') && otherUserData['location'] != null) {
+          final locationData = otherUserData['location'] as Map<String, dynamic>;
+          if (locationData.containsKey('lat') && locationData.containsKey('lng')) {
+            otherUserLatLng = LatLng(locationData['lat'], locationData['lng']);
+          }
+        } else if (otherUserData.containsKey('lastLocation')) {
+          final GeoPoint geoPoint = otherUserData['lastLocation'] as GeoPoint;
+          otherUserLatLng = LatLng(geoPoint.latitude, geoPoint.longitude);
+        }
+        
+        if (otherUserLatLng == null) continue;
 
         final distance = calculateDistance(currentUserLatLng, otherUserLatLng);
         if (distance <= radiusInKm) {

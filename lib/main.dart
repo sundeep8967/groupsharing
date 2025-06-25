@@ -12,6 +12,9 @@ import 'screens/auth/login_screen.dart';
 import 'screens/main/main_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
+import 'test_instant_sync.dart';
+import 'test_realtime_push.dart';
+import 'debug_profile_picture.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -68,6 +71,14 @@ class MyApp extends StatelessWidget {
                 : const LoginScreen();
           },
         ),
+        routes: {
+          '/login': (context) => const LoginScreen(),
+          '/main': (context) => const MainScreen(),
+          '/onboarding': (context) => const OnboardingScreen(),
+          '/test-sync': (context) => const TestInstantSync(),
+          '/test-push': (context) => const TestRealtimePush(),
+          '/debug-profile': (context) => const DebugProfilePicture(),
+        },
       ),
     );
   }

@@ -1,0 +1,35 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if a string is a valid UID (basic check)
+    function isValidUid(uid) {
+      return uid is string && uid.size() > 0;
+    }
+
+    match /users/{userId} {
+      // READ: Any authenticated user can read user profiles.
+      allow read: if request.auth != null;
+
+      // CREATE: Relaxed rules for debugging - user can create their own document
+      allow create: if request.auth.uid == userId;
+
+      // UPDATE: User can update their own document
+      allow update: if request.auth.uid == userId;
+
+      // DELETE: Disallow direct client-side deletion for now.
+      allow delete: if false;
+    }
+
+    match /friend_requests/{requestId} {
+      // Simplified friend request rules for debugging
+      allow read, write: if request.auth != null;
+    }
+
+    // Allow all other collections for authenticated users (for debugging)
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
