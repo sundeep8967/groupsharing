@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -140,10 +141,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final locationProvider = Provider.of<LocationProvider>(context, listen: false);
 
       final appUser = authProvider.user;
-      // Only initialize if provider is initialized and not already tracking
-      if (appUser != null && locationProvider.isInitialized && !locationProvider.isTracking) {
-        // Check if user previously had location sharing enabled
-        locationProvider.startTracking(appUser.uid);
+      // Only initialize the provider, don't force start tracking
+      if (appUser != null && !locationProvider.isInitialized) {
+        locationProvider.initialize();
       }
     } catch (e) {
       debugPrint('Error initializing tracking: $e');
@@ -623,6 +623,28 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 foregroundColor: Colors.white,
               ),
             ),
+            
+            const SizedBox(height: 8),
+            
+            // Debug buttons (only in debug mode)
+            if (kDebugMode) ...[
+              TextButton.icon(
+                onPressed: () => Navigator.pushNamed(context, '/test-sync'),
+                icon: const Icon(Icons.bug_report),
+                label: const Text('Test Real-time Sync'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.grey[600],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => Navigator.pushNamed(context, '/test-push'),
+                icon: const Icon(Icons.notifications_active),
+                label: const Text('Test Push Notifications'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.grey[600],
+                ),
+              ),
+            ],
           ],
         ),
       ),

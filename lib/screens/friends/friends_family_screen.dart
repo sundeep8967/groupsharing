@@ -94,134 +94,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
             separatorBuilder: (context, i) => const SizedBox(height: 12),
             itemBuilder: (context, i) {
               final UserModel friend = friends[i];
-              return Card(
-                elevation: 0,
-                color: Theme.of(context).colorScheme.surface,
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundImage: friend.photoUrl != null
-                        ? CachedNetworkImageProvider(friend.photoUrl!, cacheKey: 'profile_${friend.id}')
-                        : null,
-                    child: friend.photoUrl == null ? const Icon(Icons.person) : null,
-                  ),
-                  title: Text(friend.displayName ?? 'Friend', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(friend.email),
-                      _FriendAddressSection(friend: friend),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Online status indicator
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _isOnline(friend) ? Colors.green : Colors.grey,
-                          border: Border.all(color: Colors.white, width: 1),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Location sharing status indicator
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: _isLocationSharingEnabled(friend) 
-                              ? Colors.green.withOpacity(0.1) 
-                              : Colors.grey.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: _isLocationSharingEnabled(friend) 
-                                ? Colors.green.withOpacity(0.3) 
-                                : Colors.grey.withOpacity(0.3),
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _isLocationSharingEnabled(friend) 
-                                  ? Icons.location_on 
-                                  : Icons.location_off,
-                              size: 10,
-                              color: _isLocationSharingEnabled(friend) 
-                                  ? Colors.green 
-                                  : Colors.grey[600],
-                            ),
-                            const SizedBox(width: 2),
-                            Text(
-                              _isLocationSharingEnabled(friend) ? 'ON' : 'OFF',
-                              style: TextStyle(
-                                fontSize: 8,
-                                fontWeight: FontWeight.w600,
-                                color: _isLocationSharingEnabled(friend) 
-                                    ? Colors.green 
-                                    : Colors.grey[600],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      // Google Maps button (only show if location sharing is ON and has location)
-                      if (_isLocationSharingEnabled(friend) && friend.lastLocation != null)
-                        IconButton(
-                          icon: _buildGoogleMapsStyleIcon(),
-                          onPressed: () async {
-                            final lat = friend.lastLocation!.latitude;
-                            final lng = friend.lastLocation!.longitude;
-                            final googleMapsUrl = 'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
-                            final androidIntent = Uri.parse('geo:$lat,$lng?q=$lat,$lng');
-                            try {
-                              bool launched = false;
-                              launched = await launchUrl(
-                                androidIntent,
-                                mode: LaunchMode.externalApplication,
-                              );
-                              if (!launched) {
-                                await launchUrl(Uri.parse(googleMapsUrl), mode: LaunchMode.externalApplication);
-                              }
-                            } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Could not open Google Maps.')),
-                              );
-                            }
-                          },
-                        )
-                      else
-                        // Show disabled map icon when location sharing is OFF
-                        IconButton(
-                          icon: Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              color: Colors.grey.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Icon(
-                              Icons.location_off,
-                              color: Colors.grey[400],
-                              size: 20,
-                            ),
-                          ),
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('${friend.displayName ?? 'Friend'} has location sharing turned off'),
-                                duration: const Duration(seconds: 2),
-                              ),
-                            );
-                          },
-                        ),
-                    ],
-                  ),
-                ),
-              );
+              return _FriendListItem(friend: friend);
             },
           );
         },
@@ -229,27 +102,6 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     );
   }
 
-  bool _isOnline(UserModel friend) {
-    if (friend.lastSeen == null) return false;
-    // Consider a threshold, e.g., 5 minutes for "online"
-    return DateTime.now().difference(friend.lastSeen!).inMinutes < 5;
-  }
-
-  bool _isLocationSharingEnabled(UserModel friend) {
-    return friend.locationSharingEnabled;
-  }
-
-  String _getLocationSharingStatus(UserModel friend) {
-    if (!friend.locationSharingEnabled) {
-      return 'Location sharing OFF';
-    }
-    
-    if (friend.lastLocation == null) {
-      return 'Location sharing ON (No location yet)';
-    }
-    
-    return 'Location sharing ON';
-  }
 
   Widget _buildLocationToggle(LocationProvider locationProvider, firebase_auth.User user) {
     final isOn = locationProvider.isTracking;
@@ -337,6 +189,186 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
+    );
+  }
+}
+
+// Separate widget for each friend item to optimize rebuilds
+class _FriendListItem extends StatelessWidget {
+  final UserModel friend;
+  
+  const _FriendListItem({required this.friend});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surface,
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundImage: friend.photoUrl != null
+              ? CachedNetworkImageProvider(friend.photoUrl!, cacheKey: 'profile_${friend.id}')
+              : null,
+          child: friend.photoUrl == null ? const Icon(Icons.person) : null,
+        ),
+        title: Text(friend.displayName ?? 'Friend', style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(friend.email),
+            _FriendAddressSection(friend: friend),
+          ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Online status indicator
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _isOnline(friend) ? Colors.green : Colors.grey,
+                border: Border.all(color: Colors.white, width: 1),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Location sharing status indicator - Only this part rebuilds
+            _LocationStatusIndicator(friend: friend),
+            const SizedBox(width: 4),
+            // Google Maps button - Only this part rebuilds
+            _GoogleMapsButton(friend: friend),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _isOnline(UserModel friend) {
+    if (friend.lastSeen == null) return false;
+    // Consider a threshold, e.g., 5 minutes for "online"
+    return DateTime.now().difference(friend.lastSeen!).inMinutes < 5;
+  }
+}
+
+// Separate widget for location status indicator to minimize rebuilds
+class _LocationStatusIndicator extends StatelessWidget {
+  final UserModel friend;
+  
+  const _LocationStatusIndicator({required this.friend});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<LocationProvider>(
+      builder: (context, locationProvider, child) {
+        final isSharing = locationProvider.isUserSharingLocation(friend.id);
+        
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: isSharing 
+                ? Colors.green.withOpacity(0.1) 
+                : Colors.grey.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isSharing 
+                  ? Colors.green.withOpacity(0.3) 
+                  : Colors.grey.withOpacity(0.3),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isSharing ? Icons.location_on : Icons.location_off,
+                size: 10,
+                color: isSharing ? Colors.green : Colors.grey[600],
+              ),
+              const SizedBox(width: 2),
+              Text(
+                isSharing ? 'ON' : 'OFF',
+                style: TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.w600,
+                  color: isSharing ? Colors.green : Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// Separate widget for Google Maps button to minimize rebuilds
+class _GoogleMapsButton extends StatelessWidget {
+  final UserModel friend;
+  
+  const _GoogleMapsButton({required this.friend});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<LocationProvider>(
+      builder: (context, locationProvider, child) {
+        final isSharing = locationProvider.isUserSharingLocation(friend.id);
+        final hasLocation = locationProvider.userLocations.containsKey(friend.id);
+        
+        if (isSharing && hasLocation) {
+          return IconButton(
+            icon: _buildGoogleMapsStyleIcon(),
+            onPressed: () async {
+              final location = locationProvider.userLocations[friend.id];
+              if (location != null) {
+                final lat = location.latitude;
+                final lng = location.longitude;
+                final googleMapsUrl = 'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
+                final androidIntent = Uri.parse('geo:$lat,$lng?q=$lat,$lng');
+                try {
+                  bool launched = false;
+                  launched = await launchUrl(
+                    androidIntent,
+                    mode: LaunchMode.externalApplication,
+                  );
+                  if (!launched) {
+                    await launchUrl(Uri.parse(googleMapsUrl), mode: LaunchMode.externalApplication);
+                  }
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Could not open Google Maps.')),
+                  );
+                }
+              }
+            },
+          );
+        } else {
+          // Show disabled map icon when location sharing is OFF
+          return IconButton(
+            icon: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(
+                Icons.location_off,
+                color: Colors.grey[400],
+                size: 20,
+              ),
+            ),
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${friend.displayName ?? 'Friend'} has location sharing turned off'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+          );
+        }
+      },
     );
   }
 
