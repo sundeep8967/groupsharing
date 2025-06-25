@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../../providers/auth_provider.dart' as app_auth;
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/friend_service.dart'; // Adjust path if necessary
@@ -26,8 +27,48 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Friends & Family'),
+        title: const Text(
+          'Friends & Family',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+          ),
+        ),
         centerTitle: true,
+        elevation: 0,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        surfaceTintColor: Colors.transparent,
+        actions: [
+          Consumer<LocationProvider>(
+            builder: (context, locationProvider, child) {
+              // Show loading state until provider is initialized
+              if (!locationProvider.isInitialized) {
+                return Container(
+                  width: 140,
+                  height: 40,
+                  margin: const EdgeInsets.only(right: 16.0, top: 8, bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: Colors.grey.withOpacity(0.3),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                );
+              }
+              
+              return _buildLocationToggle(locationProvider, user);
+            },
+          ),
+        ],
       ),
       body: StreamBuilder<List<UserModel>>(
         stream: _friendService.getFriends(user.uid),
@@ -74,40 +115,109 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Online status indicator
                       Container(
-                        width: 12,
-                        height: 12,
+                        width: 8,
+                        height: 8,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: _isOnline(friend) ? Colors.green : Colors.grey,
-                          border: Border.all(color: Colors.white, width: 2),
+                          border: Border.all(color: Colors.white, width: 1),
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.location_on_outlined),
-                        onPressed: friend.lastLocation != null
-                            ? () async {
-                                final lat = friend.lastLocation!.latitude;
-                                final lng = friend.lastLocation!.longitude;
-                                final googleMapsUrl = 'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
-                                final androidIntent = Uri.parse('geo:$lat,$lng?q=$lat,$lng');
-                                try {
-                                  bool launched = false;
-                                  launched = await launchUrl(
-                                    androidIntent,
-                                    mode: LaunchMode.externalApplication,
-                                  );
-                                  if (!launched) {
-                                    await launchUrl(Uri.parse(googleMapsUrl), mode: LaunchMode.externalApplication);
-                                  }
-                                } catch (e) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Could not open Google Maps.')),
-                                  );
-                                }
-                              }
-                            : null,
+                      const SizedBox(width: 8),
+                      // Location sharing status indicator
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _isLocationSharingEnabled(friend) 
+                              ? Colors.green.withOpacity(0.1) 
+                              : Colors.grey.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: _isLocationSharingEnabled(friend) 
+                                ? Colors.green.withOpacity(0.3) 
+                                : Colors.grey.withOpacity(0.3),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _isLocationSharingEnabled(friend) 
+                                  ? Icons.location_on 
+                                  : Icons.location_off,
+                              size: 10,
+                              color: _isLocationSharingEnabled(friend) 
+                                  ? Colors.green 
+                                  : Colors.grey[600],
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              _isLocationSharingEnabled(friend) ? 'ON' : 'OFF',
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.w600,
+                                color: _isLocationSharingEnabled(friend) 
+                                    ? Colors.green 
+                                    : Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 4),
+                      // Google Maps button (only show if location sharing is ON and has location)
+                      if (_isLocationSharingEnabled(friend) && friend.lastLocation != null)
+                        IconButton(
+                          icon: _buildGoogleMapsStyleIcon(),
+                          onPressed: () async {
+                            final lat = friend.lastLocation!.latitude;
+                            final lng = friend.lastLocation!.longitude;
+                            final googleMapsUrl = 'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
+                            final androidIntent = Uri.parse('geo:$lat,$lng?q=$lat,$lng');
+                            try {
+                              bool launched = false;
+                              launched = await launchUrl(
+                                androidIntent,
+                                mode: LaunchMode.externalApplication,
+                              );
+                              if (!launched) {
+                                await launchUrl(Uri.parse(googleMapsUrl), mode: LaunchMode.externalApplication);
+                              }
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Could not open Google Maps.')),
+                              );
+                            }
+                          },
+                        )
+                      else
+                        // Show disabled map icon when location sharing is OFF
+                        IconButton(
+                          icon: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Icon(
+                              Icons.location_off,
+                              color: Colors.grey[400],
+                              size: 20,
+                            ),
+                          ),
+                          onPressed: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('${friend.displayName ?? 'Friend'} has location sharing turned off'),
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                        ),
                     ],
                   ),
                 ),
@@ -119,10 +229,155 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     );
   }
 
-  bool _isOnline(UserModel friend) { // Changed parameter
+  bool _isOnline(UserModel friend) {
     if (friend.lastSeen == null) return false;
     // Consider a threshold, e.g., 5 minutes for "online"
     return DateTime.now().difference(friend.lastSeen!).inMinutes < 5;
+  }
+
+  bool _isLocationSharingEnabled(UserModel friend) {
+    return friend.locationSharingEnabled;
+  }
+
+  String _getLocationSharingStatus(UserModel friend) {
+    if (!friend.locationSharingEnabled) {
+      return 'Location sharing OFF';
+    }
+    
+    if (friend.lastLocation == null) {
+      return 'Location sharing ON (No location yet)';
+    }
+    
+    return 'Location sharing ON';
+  }
+
+  Widget _buildLocationToggle(LocationProvider locationProvider, firebase_auth.User user) {
+    final isOn = locationProvider.isTracking;
+    
+    return Container(
+      width: 120,
+      height: 36,
+      margin: const EdgeInsets.only(right: 16, top: 6, bottom: 6),
+      decoration: BoxDecoration(
+        color: isOn ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isOn ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          // Icon and text
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(left: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isOn ? Icons.location_on : Icons.location_off,
+                    size: 14,
+                    color: isOn ? Colors.green : Colors.grey[600],
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    isOn ? 'ON' : 'OFF',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: isOn ? Colors.green : Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Switch
+          Transform.scale(
+            scale: 0.7,
+            child: Switch(
+              value: isOn,
+              onChanged: (value) => _handleToggle(value, locationProvider, user),
+              activeColor: Colors.green,
+              activeTrackColor: Colors.green.withOpacity(0.3),
+              inactiveThumbColor: Colors.grey[400],
+              inactiveTrackColor: Colors.grey[300],
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleToggle(bool value, LocationProvider locationProvider, firebase_auth.User user) {
+    if (value) {
+      locationProvider.startTracking(user.uid);
+      _showSnackBar('Location sharing turned ON', Colors.green, Icons.check_circle);
+    } else {
+      locationProvider.stopTracking();
+      _showSnackBar('Location sharing turned OFF', Colors.orange, Icons.location_off);
+    }
+  }
+
+  void _showSnackBar(String message, Color color, IconData icon) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            Text(message),
+          ],
+        ),
+        duration: const Duration(seconds: 2),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  Widget _buildGoogleMapsStyleIcon() {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF4285F4), // Google Blue
+            Color(0xFF1A73E8), // Darker Google Blue
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4285F4).withOpacity(0.4),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+            spreadRadius: 1,
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.white.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: const Icon(
+        Icons.location_on,
+        color: Colors.white,
+        size: 20,
+      ),
+    );
   }
 }
 

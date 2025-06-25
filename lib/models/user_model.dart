@@ -11,6 +11,8 @@ class UserModel {
   final String? friendCode; // New
   final DateTime? createdAt;  // New
   final DateTime? updatedAt;  // New
+  final bool locationSharingEnabled; // New - real-time location sharing status
+  final DateTime? locationSharingUpdatedAt; // New - when status was last updated
 
   UserModel({
     required this.id,
@@ -22,6 +24,8 @@ class UserModel {
     this.friendCode, // New
     this.createdAt,  // New
     this.updatedAt,  // New
+    this.locationSharingEnabled = false, // New - defaults to false
+    this.locationSharingUpdatedAt, // New
   });
 
   Map<String, dynamic> toMap() {
@@ -37,6 +41,8 @@ class UserModel {
       'friendCode': friendCode, // New
       'createdAt': createdAt,   // New
       'updatedAt': updatedAt,   // New
+      'locationSharingEnabled': locationSharingEnabled, // New
+      'locationSharingUpdatedAt': locationSharingUpdatedAt, // New
     };
   }
 
@@ -64,6 +70,8 @@ class UserModel {
       friendCode: map['friendCode'] as String?, // New
       createdAt: (map['createdAt'] as Timestamp?)?.toDate(), // New
       updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(), // New
+      locationSharingEnabled: map['locationSharingEnabled'] as bool? ?? false, // New
+      locationSharingUpdatedAt: (map['locationSharingUpdatedAt'] as Timestamp?)?.toDate(), // New
     );
   }
 }

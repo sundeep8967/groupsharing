@@ -24,15 +24,22 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import android.util.Log;
 
 public class BackgroundLocationService extends Service {
 
     public static final String EXTRA_USER_ID = "USER_ID";
     private static final String CHANNEL_ID = "location_fg";
+    private static final String TAG = "BackgroundLocationSvc";
 
         private LocationManager locationManager;
     private LocationListener listener;
     private static final String FIREBASE_DB = "group-sharing-9d119";
+
+    // Single-thread executor for network operations
+    private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
     private String userId;
 
     /**
@@ -103,12 +110,16 @@ public class BackgroundLocationService extends Service {
                 // fallback to GPS
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, minTime, minDistance, listener);
             }
-        } catch (SecurityException ignored) {
+        } catch (SecurityException e) {
+            Log.e(TAG, "Location permission error: " + e.getMessage(), e);
+        } catch (Exception e) {
+            Log.e(TAG, "Unexpected error requesting location updates: " + e.getMessage(), e);
         }
     }
 
     private void sendLocationToFirebase(Location loc) {
-        try {
+        networkExecutor.execute(() -> {
+            try {
             String path = String.format(Locale.US, "https://%s.firebaseio.com/users/%s/location.json", FIREBASE_DB, userId);
             URL url = new URL(path);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -122,8 +133,10 @@ public class BackgroundLocationService extends Service {
             os.close();
             conn.getInputStream().close();
             conn.disconnect();
-        } catch (Exception ignored) {
-        }
+            } catch (Exception e) {
+                Log.e(TAG, "Error sending location to server: " + e.getMessage(), e);
+            }
+        });
     }
 
     private void createNotificationChannel() {
@@ -140,6 +153,7 @@ public class BackgroundLocationService extends Service {
                 if (locationManager != null && listener != null) {
             locationManager.removeUpdates(listener);
         }
+        networkExecutor.shutdownNow();
     }
 
     @Nullable

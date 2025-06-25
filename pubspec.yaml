@@ -65,6 +65,8 @@ dependencies:
   firebase_auth: ^4.17.0
   cloud_firestore: ^4.13.6
   firebase_storage: ^11.6.0
+  connectivity_plus: ^5.0.2
+  geofence_service: ^6.0.0+1
   app_links: ^6.2.0
   google_sign_in: ^6.1.6
   firebase_messaging: ^14.7.10
