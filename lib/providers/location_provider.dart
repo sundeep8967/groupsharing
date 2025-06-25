@@ -20,10 +20,11 @@ class LocationProvider with ChangeNotifier {
   StreamSubscription<DocumentSnapshot>? _userStatusSubscription;
   StreamSubscription<DatabaseEvent>? _realtimeStatusSubscription;
   StreamSubscription<DatabaseEvent>? _realtimeLocationSubscription;
+  StreamSubscription<ServiceStatus>? _locationServiceSubscription;
   
   // State variables
   LatLng? _currentLocation;
-  List<String> _nearbyUsers = [];
+  final List<String> _nearbyUsers = [];
   bool _isTracking = false;
   bool _isInitialized = false;
   bool _mounted = true;
@@ -36,6 +37,12 @@ class LocationProvider with ChangeNotifier {
   Map<String, LatLng> _userLocations = {};
   Map<String, bool> _userSharingStatus = {}; // Track real-time sharing status for each user
   VoidCallback? onLocationServiceDisabled;
+  VoidCallback? onLocationServiceEnabled;
+  
+  // Location service state management
+  bool _locationServiceEnabled = true;
+  bool _wasTrackingBeforeServiceDisabled = false;
+  String? _userIdForResumption;
   
   // Debounce timer to prevent excessive notifications
   Timer? _notificationDebounceTimer;
@@ -54,6 +61,7 @@ class LocationProvider with ChangeNotifier {
   Map<String, LatLng> get userLocations => _userLocations;
   Map<String, bool> get userSharingStatus => _userSharingStatus;
   bool get mounted => _mounted;
+  bool get locationServiceEnabled => _locationServiceEnabled;
 
   // Check if a specific user is sharing their location
   bool isUserSharingLocation(String userId) {
@@ -143,8 +151,179 @@ class LocationProvider with ChangeNotifier {
   }
 
   void _log(String message) {
-    print('REALTIME_PROVIDER: $message');
     debugPrint('REALTIME_PROVIDER: $message');
+  }
+
+  // Start monitoring location service status changes
+  void _startLocationServiceMonitoring() {
+    _log('=== STARTING LOCATION SERVICE MONITORING ===');
+    
+    // Cancel existing subscription
+    _locationServiceSubscription?.cancel();
+    
+    // Check initial status
+    Geolocator.isLocationServiceEnabled().then((enabled) {
+      _locationServiceEnabled = enabled;
+      _log('Initial location service status: $enabled');
+      if (_mounted) notifyListeners();
+    });
+    
+    // Listen to service status changes
+    _locationServiceSubscription = Geolocator.getServiceStatusStream().listen((status) {
+      final wasEnabled = _locationServiceEnabled;
+      _locationServiceEnabled = status == ServiceStatus.enabled;
+      
+      _log('Location service status changed: $status (enabled: $_locationServiceEnabled)');
+      
+      if (_mounted) notifyListeners();
+      
+      // Handle service disabled
+      if (wasEnabled && !_locationServiceEnabled) {
+        _handleLocationServiceDisabled();
+      }
+      // Handle service enabled
+      else if (!wasEnabled && _locationServiceEnabled) {
+        _handleLocationServiceEnabled();
+      }
+    }, onError: (error) {
+      _log('Error monitoring location service status: $error');
+    });
+  }
+
+  // Handle location service being disabled - IMMEDIATELY mark user as offline
+  Future<void> _handleLocationServiceDisabled() async {
+    _log('=== LOCATION SERVICE DISABLED ===');
+    
+    // Store current tracking state for resumption
+    _wasTrackingBeforeServiceDisabled = _isTracking;
+    
+    if (_isTracking) {
+      _log('Location service disabled while tracking - marking user as offline');
+      _status = 'Location services disabled - you appear offline to friends';
+      
+      // Get current user ID
+      final userId = await _getCurrentUserId();
+      if (userId != null) {
+        // IMMEDIATELY mark user as offline in both databases
+        await _markUserAsOffline(userId);
+        
+        // Store user ID for resumption
+        _userIdForResumption = userId;
+      }
+      
+      // Pause location subscription but keep tracking state for resumption
+      _locationSubscription?.pause();
+      
+      // Notify callback if set
+      if (onLocationServiceDisabled != null) {
+        onLocationServiceDisabled!();
+      }
+    } else {
+      _status = 'Location services disabled';
+    }
+    
+    if (_mounted) notifyListeners();
+  }
+
+  // Handle location service being enabled - resume tracking if it was active
+  Future<void> _handleLocationServiceEnabled() async {
+    _log('=== LOCATION SERVICE ENABLED ===');
+    
+    _status = 'Location services enabled';
+    
+    // Resume tracking if it was active before service was disabled
+    if (_wasTrackingBeforeServiceDisabled && _userIdForResumption != null) {
+      _log('Resuming location tracking after service re-enabled');
+      _status = 'Resuming location tracking...';
+      
+      // Mark user as online first
+      await _markUserAsOnline(_userIdForResumption!);
+      
+      // Resume location subscription if it was paused
+      _locationSubscription?.resume();
+      
+      // If subscription was cancelled, restart tracking
+      if (_locationSubscription == null) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (_mounted && _locationServiceEnabled) {
+            _startTrackingInBackground(_userIdForResumption!);
+          }
+        });
+      }
+      
+      // Reset the flag
+      _wasTrackingBeforeServiceDisabled = false;
+      
+      // Notify callback if set
+      if (onLocationServiceEnabled != null) {
+        onLocationServiceEnabled!();
+      }
+    }
+    
+    if (_mounted) notifyListeners();
+  }
+
+  // Mark user as offline in both databases
+  Future<void> _markUserAsOffline(String userId) async {
+    _log('Marking user as offline: ${userId.substring(0, 8)}');
+    try {
+      // Remove from Realtime Database locations (makes user appear offline immediately)
+      await _realtimeDb.ref('locations/$userId').remove();
+      _log('Removed user from Realtime DB locations');
+      
+      // Update Realtime Database status to indicate location service is disabled
+      await _realtimeDb.ref('users/$userId').update({
+        'locationSharingEnabled': false,
+        'locationServiceDisabled': true,
+        'lastSeen': ServerValue.timestamp,
+      });
+      _log('Updated Realtime DB user status to offline');
+      
+      // Update Firestore to mark as offline
+      await FirebaseFirestore.instance.collection('users').doc(userId).update({
+        'locationSharingEnabled': false,
+        'locationServiceDisabled': true,
+        'location': null, // Clear location data
+        'lastSeen': FieldValue.serverTimestamp(),
+        'lastOnline': FieldValue.serverTimestamp(),
+      });
+      _log('Updated Firestore user status to offline');
+      
+      // Update local state
+      _userSharingStatus[userId] = false;
+      _userLocations.remove(userId);
+      
+    } catch (e) {
+      _log('Error marking user as offline: $e');
+    }
+  }
+
+  // Mark user as online when location service is restored
+  Future<void> _markUserAsOnline(String userId) async {
+    _log('Marking user as online: ${userId.substring(0, 8)}');
+    try {
+      // Update Realtime Database status
+      await _realtimeDb.ref('users/$userId').update({
+        'locationSharingEnabled': true,
+        'locationServiceDisabled': false,
+        'lastSeen': ServerValue.timestamp,
+      });
+      _log('Updated Realtime DB user status to online');
+      
+      // Update Firestore
+      await FirebaseFirestore.instance.collection('users').doc(userId).update({
+        'locationSharingEnabled': true,
+        'locationServiceDisabled': false,
+        'lastOnline': FieldValue.serverTimestamp(),
+      });
+      _log('Updated Firestore user status to online');
+      
+      // Update local state
+      _userSharingStatus[userId] = true;
+      
+    } catch (e) {
+      _log('Error marking user as online: $e');
+    }
   }
 
   // Debounced notification to prevent excessive rebuilds
@@ -176,6 +355,9 @@ class LocationProvider with ChangeNotifier {
       _isTracking = isLocationSharingEnabled;
       _isInitialized = true;
       if (_mounted) notifyListeners();
+      
+      // Start monitoring location service status
+      _startLocationServiceMonitoring();
       
       // Start listening to user status changes for real-time sync
       if (savedUserId != null) {
@@ -335,6 +517,10 @@ class LocationProvider with ChangeNotifier {
               } else {
                 _log('User ${otherUserId.substring(0, 8)} stopped sharing location');
               }
+            } else {
+              // User has no location data - they are offline
+              updatedSharingStatus[otherUserId] = false;
+              _log('User ${otherUserId.substring(0, 8)} is offline (no location data)');
             }
           }
           
@@ -452,6 +638,9 @@ class LocationProvider with ChangeNotifier {
       return;
     }
 
+    // Store user ID for potential resumption
+    _userIdForResumption = userId;
+
     // Set tracking to true IMMEDIATELY for instant UI response
     _isTracking = true;
     _userSharingStatus[userId] = true; // Update sharing status immediately
@@ -516,6 +705,13 @@ class LocationProvider with ChangeNotifier {
         userId,
         (LatLng location) async {
           _log('Location update received: ${location.latitude}, ${location.longitude}');
+          
+          // Check if location services are still enabled
+          if (!_locationServiceEnabled) {
+            _log('Location service disabled, cannot update location');
+            return;
+          }
+          
           final now = DateTime.now();
           bool shouldUpdate = false;
           if (lastLocation == null) {
@@ -732,6 +928,7 @@ class LocationProvider with ChangeNotifier {
     _userStatusSubscription?.cancel();
     _realtimeStatusSubscription?.cancel();
     _realtimeLocationSubscription?.cancel();
+    _locationServiceSubscription?.cancel();
     super.dispose();
   }
 }
