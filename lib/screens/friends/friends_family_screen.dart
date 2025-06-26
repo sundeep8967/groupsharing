@@ -242,7 +242,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
           _buildCategoryHeader('Family', familyMembers.length, Icons.family_restroom),
           const SizedBox(height: 8),
           ...familyMembers.map((friendRelationship) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.only(bottom: 8),
             child: _FriendListItem(
               friendRelationship: friendRelationship,
               onTap: _navigateToFriendDetails,
@@ -256,7 +256,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
           _buildCategoryHeader('Friends', friends.length, Icons.people),
           const SizedBox(height: 8),
           ...friends.map((friendRelationship) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.only(bottom: 8),
             child: _FriendListItem(
               friendRelationship: friendRelationship,
               onTap: _navigateToFriendDetails,
@@ -308,7 +308,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
         _buildCategoryHeader('Family Members', familyMembers.length, Icons.family_restroom),
         const SizedBox(height: 16),
         ...familyMembers.map((friendRelationship) => Padding(
-          padding: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.only(bottom: 8),
           child: _FriendListItem(
             friendRelationship: friendRelationship,
             onTap: _navigateToFriendDetails,
@@ -359,7 +359,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
         _buildCategoryHeader('Friends', friends.length, Icons.people),
         const SizedBox(height: 16),
         ...friends.map((friendRelationship) => Padding(
-          padding: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.only(bottom: 8),
           child: _FriendListItem(
             friendRelationship: friendRelationship,
             onTap: _navigateToFriendDetails,
@@ -519,7 +519,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
   }
 }
 
-// Updated friend list item to work with FriendRelationship
+// Updated friend list item to work with FriendRelationship - Compact & Beautiful Design
 class _FriendListItem extends StatelessWidget {
   final FriendRelationship friendRelationship;
   final void Function(FriendRelationship) onTap;
@@ -532,72 +532,160 @@ class _FriendListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final friend = friendRelationship.user;
-    return Card(
-      elevation: 0,
-      color: Theme.of(context).colorScheme.surface,
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundImage: friend.photoUrl != null
-              ? CachedNetworkImageProvider(friend.photoUrl!, cacheKey: 'profile_${friend.id}')
-              : null,
-          child: friend.photoUrl == null ? const Icon(Icons.person) : null,
-        ),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                friend.displayName ?? 'Friend', 
-                style: const TextStyle(fontWeight: FontWeight.bold)
-              ),
-            ),
-            // Category badge
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: friendRelationship.category == FriendshipCategory.family 
-                    ? Colors.purple.withOpacity(0.1)
-                    : Colors.blue.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: friendRelationship.category == FriendshipCategory.family 
-                      ? Colors.purple.withOpacity(0.3)
-                      : Colors.blue.withOpacity(0.3),
-                  width: 1,
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.withOpacity(0.15)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => onTap(friendRelationship),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                // Profile Photo with Status Indicator
+                Stack(
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.pink.withOpacity(0.3),
+                          width: 2,
+                        ),
+                      ),
+                      child: CircleAvatar(
+                        radius: 24,
+                        backgroundColor: Colors.pink,
+                        child: CircleAvatar(
+                          radius: 22,
+                          backgroundImage: friend.photoUrl != null
+                              ? CachedNetworkImageProvider(friend.photoUrl!, cacheKey: 'profile_${friend.id}')
+                              : null,
+                          child: friend.photoUrl == null 
+                              ? const Icon(Icons.person, size: 24, color: Colors.grey) 
+                              : null,
+                        ),
+                      ),
+                    ),
+                    // Online status indicator
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _isOnline(friend) ? Colors.green : Colors.grey[400],
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              child: Text(
-                friendRelationship.categoryDisplayName,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: friendRelationship.category == FriendshipCategory.family 
-                      ? Colors.purple[700]
-                      : Colors.blue[700],
+                
+                const SizedBox(width: 12),
+                
+                // Friend Info Section
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Name and Category Row
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              friend.displayName ?? 'Friend',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 16,
+                                color: Colors.black87,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          // Category badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: friendRelationship.category == FriendshipCategory.family 
+                                  ? Colors.purple.withOpacity(0.1)
+                                  : Colors.blue.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: friendRelationship.category == FriendshipCategory.family 
+                                    ? Colors.purple.withOpacity(0.3)
+                                    : Colors.blue.withOpacity(0.3),
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              friendRelationship.categoryDisplayName,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: friendRelationship.category == FriendshipCategory.family 
+                                    ? Colors.purple[700]
+                                    : Colors.blue[700],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 4),
+                      
+                      // Address Section - Always show complete address
+                      _CompactFriendAddressSection(friend: friend),
+                      
+                      const SizedBox(height: 6),
+                      
+                      // Status Row
+                      Row(
+                        children: [
+                          // Location sharing status
+                          _CompactLocationStatusIndicator(friend: friend),
+                          const SizedBox(width: 8),
+                          // Last seen
+                          Expanded(
+                            child: Text(
+                              _getLastSeenText(friend),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+                
+                const SizedBox(width: 8),
+                
+                // Action Button
+                _CompactGoogleMapsButton(friend: friend),
+              ],
             ),
-          ],
-        ),
-        subtitle: _FriendAddressSection(friend: friend),
-        onTap: () => onTap(friendRelationship),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Online status indicator
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: _isOnline(friend) ? Colors.green : Colors.grey,
-                border: Border.all(color: Colors.white, width: 1),
-              ),
-            ),
-            const SizedBox(width: 8),
-            _LocationStatusIndicator(friend: friend),
-            const SizedBox(width: 4),
-            _GoogleMapsButton(friend: friend),
-          ],
+          ),
         ),
       ),
     );
@@ -607,9 +695,79 @@ class _FriendListItem extends StatelessWidget {
     if (friend.lastSeen == null) return false;
     return DateTime.now().difference(friend.lastSeen!).inMinutes < 5;
   }
+
+  String _getLastSeenText(UserModel friend) {
+    if (friend.lastSeen == null) return 'Never seen';
+    
+    final now = DateTime.now();
+    final difference = now.difference(friend.lastSeen!);
+    
+    if (difference.inMinutes < 1) {
+      return 'Just now';
+    } else if (difference.inMinutes < 60) {
+      return '${difference.inMinutes}m ago';
+    } else if (difference.inHours < 24) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays}d ago';
+    } else {
+      return 'Long time ago';
+    }
+  }
 }
 
-// Keep the existing location status indicator
+// Compact location status indicator
+class _CompactLocationStatusIndicator extends StatelessWidget {
+  final UserModel friend;
+  
+  const _CompactLocationStatusIndicator({required this.friend});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<LocationProvider>(
+      builder: (context, locationProvider, child) {
+        final isSharing = locationProvider.isUserSharingLocation(friend.id);
+        
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: isSharing 
+                ? Colors.green.withOpacity(0.1) 
+                : Colors.grey.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: isSharing 
+                  ? Colors.green.withOpacity(0.3) 
+                  : Colors.grey.withOpacity(0.3),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isSharing ? Icons.location_on : Icons.location_off,
+                size: 8,
+                color: isSharing ? Colors.green : Colors.grey[600],
+              ),
+              const SizedBox(width: 2),
+              Text(
+                isSharing ? 'ON' : 'OFF',
+                style: TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.w600,
+                  color: isSharing ? Colors.green : Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// Keep the existing location status indicator for backward compatibility
 class _LocationStatusIndicator extends StatelessWidget {
   final UserModel friend;
   
@@ -660,7 +818,93 @@ class _LocationStatusIndicator extends StatelessWidget {
   }
 }
 
-// Keep the existing Google Maps button
+// Compact Google Maps button
+class _CompactGoogleMapsButton extends StatelessWidget {
+  final UserModel friend;
+  
+  const _CompactGoogleMapsButton({required this.friend});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<LocationProvider>(
+      builder: (context, locationProvider, child) {
+        final isSharing = locationProvider.isUserSharingLocation(friend.id);
+        final hasLocation = locationProvider.userLocations.containsKey(friend.id);
+        
+        if (isSharing && hasLocation) {
+          return GestureDetector(
+            onTap: () async {
+              final location = locationProvider.userLocations[friend.id];
+              if (location != null) {
+                final lat = location.latitude;
+                final lng = location.longitude;
+                final googleMapsUrl = 'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
+                final androidIntent = Uri.parse('geo:$lat,$lng?q=$lat,$lng');
+                try {
+                  bool launched = false;
+                  launched = await launchUrl(
+                    androidIntent,
+                    mode: LaunchMode.externalApplication,
+                  );
+                  if (!launched) {
+                    await launchUrl(Uri.parse(googleMapsUrl), mode: LaunchMode.externalApplication);
+                  }
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Could not open Google Maps.')),
+                  );
+                }
+              }
+            },
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFF4285F4),
+                    Color(0xFF1A73E8),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF4285F4).withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.location_on,
+                color: Colors.white,
+                size: 18,
+              ),
+            ),
+          );
+        } else {
+          return Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: Colors.grey.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.location_off,
+              color: Colors.grey[400],
+              size: 18,
+            ),
+          );
+        }
+      },
+    );
+  }
+}
+
+// Keep the existing Google Maps button for backward compatibility
 class _GoogleMapsButton extends StatelessWidget {
   final UserModel friend;
   
@@ -770,7 +1014,169 @@ class _GoogleMapsButton extends StatelessWidget {
   }
 }
 
-// Keep the existing address section
+// Compact address section that always shows complete address
+class _CompactFriendAddressSection extends StatefulWidget {
+  final UserModel friend;
+  const _CompactFriendAddressSection({required this.friend});
+
+  @override
+  State<_CompactFriendAddressSection> createState() => _CompactFriendAddressSectionState();
+}
+
+class _CompactFriendAddressSectionState extends State<_CompactFriendAddressSection> {
+  Map<String, String?>? _address;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAddress();
+  }
+
+  void _loadAddress() async {
+    final state = context.findAncestorStateOfType<_FriendsFamilyScreenState>();
+    final friend = widget.friend;
+    if (friend.lastLocation == null) return;
+    final cache = state?._addressCache;
+    final cacheKey = friend.id;
+    if (cache != null && cache.containsKey(cacheKey)) {
+      setState(() {
+        _address = cache[cacheKey];
+      });
+      return;
+    }
+    setState(() => _loading = true);
+    final addr = await Provider.of<LocationProvider>(context, listen: false)
+        .getAddressForCoordinates(friend.lastLocation!.latitude, friend.lastLocation!.longitude);
+    if (mounted) {
+      setState(() {
+        _address = addr;
+        _loading = false;
+      });
+      if (cache != null) cache[cacheKey] = addr;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final friend = widget.friend;
+    if (friend.lastLocation == null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.grey.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.location_off, size: 12, color: Colors.grey[600]),
+            const SizedBox(width: 4),
+            const Expanded(
+              child: Text(
+                'No location available',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+                overflow: TextOverflow.visible,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    if (_loading) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.blue.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.5,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!),
+              ),
+            ),
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Text(
+                'Loading address...',
+                style: TextStyle(fontSize: 11, color: Colors.blue),
+                overflow: TextOverflow.visible,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    if (_address == null || _address!.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.orange.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.location_searching, size: 12, color: Colors.orange[600]),
+            const SizedBox(width: 4),
+            const Expanded(
+              child: Text(
+                'Address not found',
+                style: TextStyle(fontSize: 11, color: Colors.orange),
+                overflow: TextOverflow.visible,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    final address = _address!['address'] ?? '';
+    final city = _address!['city'] ?? '';
+    final pin = _address!['postalCode'] ?? '';
+    
+    // Build complete address string
+    final addressParts = <String>[];
+    if (address.isNotEmpty) addressParts.add(address);
+    if (city.isNotEmpty) addressParts.add(city);
+    if (pin.isNotEmpty) addressParts.add(pin);
+    
+    final fullAddress = addressParts.join(', ');
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.green.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.location_on, size: 12, color: Colors.green[600]),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              fullAddress.isNotEmpty ? fullAddress : 'Address available',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.green[700],
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.visible, // Always show complete address
+              maxLines: null, // Allow multiple lines if needed
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Keep the existing address section for backward compatibility
 class _FriendAddressSection extends StatefulWidget {
   final UserModel friend;
   const _FriendAddressSection({required this.friend});
