@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_model.dart'; // Assuming UserModel will be needed
 import '../models/friendship_model.dart'; // Assuming FriendshipModel will be needed
+import '../models/friend_relationship.dart'; // New model for friend relationships
 import 'firebase_service.dart'; // For accessing Firestore collections
 
 class FriendService {
@@ -100,6 +101,7 @@ class FriendService {
         'from': currentUserUID, // Changed: userId -> from
         'to': targetUserUID,   // Changed: friendId -> to
         'status': FriendshipStatus.pending.toString(), // Use enum value
+        'category': FriendshipCategory.family.toString(), // Default to family
         'timestamp': FieldValue.serverTimestamp(), // Changed: createdAt -> timestamp
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -185,12 +187,24 @@ class FriendService {
       return _friendshipsCollection
           .where('to', isEqualTo: currentUserUID) // Changed: friendId -> to
           .where('status', isEqualTo: FriendshipStatus.pending.toString())
-          .orderBy('timestamp', descending: true) // Changed: createdAt -> timestamp
           .snapshots()
           .map((snapshot) {
-        return snapshot.docs.map((doc) {
+        // Sort in memory instead of using orderBy to avoid index requirement
+        final docs = snapshot.docs.map((doc) {
           return FriendshipModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
         }).toList();
+        
+        // Sort by timestamp in descending order (newest first)
+        docs.sort((a, b) {
+          final aTimestamp = a.timestamp;
+          final bTimestamp = b.timestamp;
+          if (aTimestamp == null && bTimestamp == null) return 0;
+          if (aTimestamp == null) return 1;
+          if (bTimestamp == null) return -1;
+          return bTimestamp.compareTo(aTimestamp);
+        });
+        
+        return docs;
       }).handleError((error) {
         print('[FriendService] Error in getPendingRequests stream: $error');
         // Optionally, return an empty list or a stream with an error
@@ -257,17 +271,31 @@ class FriendService {
     }
   }
 
+  // Method to get pending friend requests sent by the current user
   Stream<List<FriendshipModel>> getSentRequests(String currentUserUID) {
-    print('[FriendService] getSentRequests called for user: $currentUserUID');
+    print('[FriendService] getSentRequests called for user: $currentUserUID (pending only)');
     try {
       return _friendshipsCollection // This now correctly points to 'friend_requests'
           .where('from', isEqualTo: currentUserUID) // Requests sent BY the current user
-          .orderBy('timestamp', descending: true)
+          .where('status', isEqualTo: FriendshipStatus.pending.toString()) // Only pending requests
           .snapshots()
           .map((snapshot) {
-        return snapshot.docs.map((doc) {
+        // Sort in memory instead of using orderBy to avoid index requirement
+        final docs = snapshot.docs.map((doc) {
           return FriendshipModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
         }).toList();
+        
+        // Sort by timestamp in descending order (newest first)
+        docs.sort((a, b) {
+          final aTimestamp = a.timestamp;
+          final bTimestamp = b.timestamp;
+          if (aTimestamp == null && bTimestamp == null) return 0;
+          if (aTimestamp == null) return 1;
+          if (bTimestamp == null) return -1;
+          return bTimestamp.compareTo(aTimestamp);
+        });
+        
+        return docs;
       }).handleError((error) {
         print('[FriendService] Error in getSentRequests stream: $error');
         return [];
@@ -306,6 +334,105 @@ class FriendService {
       print('[FriendService] Error cancelling sent request $requestID: $e');
       // Re-throw to be handled by the UI
       throw Exception('Failed to cancel sent request: ${e.toString()}');
+    }
+  }
+
+  /// Get friends with their categories
+  Stream<List<FriendRelationship>> getFriendsWithCategories(String currentUserUID) {
+    print('[FriendService] getFriendsWithCategories called for user: $currentUserUID');
+    try {
+      return _friendshipsCollection
+          .where('status', isEqualTo: FriendshipStatus.accepted.toString())
+          .snapshots()
+          .asyncMap((snapshot) async {
+        
+        final List<FriendRelationship> friendRelationships = [];
+        
+        for (final doc in snapshot.docs) {
+          final friendshipData = doc.data() as Map<String, dynamic>;
+          final friendship = FriendshipModel.fromMap(friendshipData, doc.id);
+          
+          // Determine if current user is 'from' or 'to' to get the friend's ID
+          String friendId;
+          if (friendship.from == currentUserUID) {
+            friendId = friendship.to;
+          } else if (friendship.to == currentUserUID) {
+            friendId = friendship.from;
+          } else {
+            continue; // This friendship doesn't involve the current user
+          }
+          
+          // Get friend's user data
+          final friendDoc = await _usersCollection.doc(friendId).get();
+          if (friendDoc.exists && friendDoc.data() != null) {
+            final friendUser = UserModel.fromMap(friendDoc.data()!, friendDoc.id);
+            
+            friendRelationships.add(FriendRelationship(
+              user: friendUser,
+              category: friendship.category,
+              friendshipId: doc.id,
+            ));
+          }
+        }
+        
+        print('[FriendService] Fetched ${friendRelationships.length} friend relationships for user $currentUserUID');
+        return friendRelationships;
+      }).handleError((error) {
+        print('[FriendService] Error in getFriendsWithCategories stream for user $currentUserUID: $error');
+        return <FriendRelationship>[]; // Return an empty list on error
+      });
+    } catch (e) {
+      print('[FriendService] Exception caught while setting up getFriendsWithCategories stream for $currentUserUID: $e');
+      return Stream.value([]); // Return empty stream on initial setup error
+    }
+  }
+
+  /// Update friendship category
+  Future<void> updateFriendshipCategory(String friendshipId, FriendshipCategory newCategory) async {
+    print('[FriendService] Attempting to update friendship category: $friendshipId to $newCategory');
+    try {
+      await _friendshipsCollection.doc(friendshipId).update({
+        'category': newCategory.toString(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      print('[FriendService] Friendship category updated successfully for $friendshipId');
+    } catch (e) {
+      print('[FriendService] Error updating friendship category: $e');
+      throw Exception('Failed to update friendship category: ${e.toString()}');
+    }
+  }
+
+  /// Get friendship details between two users
+  Future<FriendshipModel?> getFriendshipBetweenUsers(String user1Id, String user2Id) async {
+    print('[FriendService] Getting friendship between $user1Id and $user2Id');
+    try {
+      // Check both directions since friendship can be initiated by either user
+      final query1 = await _friendshipsCollection
+          .where('from', isEqualTo: user1Id)
+          .where('to', isEqualTo: user2Id)
+          .where('status', isEqualTo: FriendshipStatus.accepted.toString())
+          .limit(1)
+          .get();
+      
+      if (query1.docs.isNotEmpty) {
+        return FriendshipModel.fromMap(query1.docs.first.data(), query1.docs.first.id);
+      }
+      
+      final query2 = await _friendshipsCollection
+          .where('from', isEqualTo: user2Id)
+          .where('to', isEqualTo: user1Id)
+          .where('status', isEqualTo: FriendshipStatus.accepted.toString())
+          .limit(1)
+          .get();
+      
+      if (query2.docs.isNotEmpty) {
+        return FriendshipModel.fromMap(query2.docs.first.data(), query2.docs.first.id);
+      }
+      
+      return null;
+    } catch (e) {
+      print('[FriendService] Error getting friendship between users: $e');
+      return null;
     }
   }
 }

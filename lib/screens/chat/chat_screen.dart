@@ -113,7 +113,6 @@ class _ChatScreenState extends State<ChatScreen> {
               stream: FirebaseService.firestore
                   .collection('messages')
                   .where('chatId', isEqualTo: chatId)
-                  .orderBy('timestamp', descending: false)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
@@ -130,6 +129,16 @@ class _ChatScreenState extends State<ChatScreen> {
                           doc.id,
                         ))
                     .toList();
+                
+                // Sort messages by timestamp in ascending order (oldest first)
+                messages.sort((a, b) {
+                  final aTimestamp = a.timestamp;
+                  final bTimestamp = b.timestamp;
+                  if (aTimestamp == null && bTimestamp == null) return 0;
+                  if (aTimestamp == null) return -1;
+                  if (bTimestamp == null) return 1;
+                  return aTimestamp.compareTo(bTimestamp);
+                });
 
                 if (messages.isEmpty) {
                   return const Center(
