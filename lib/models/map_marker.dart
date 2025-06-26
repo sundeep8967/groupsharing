@@ -12,6 +12,7 @@ class MapMarker {
   final bool isCurrentUser;
   final double? bearing;
   final double? accuracy;
+  final String? photoUrl; // Add photo URL for friend markers
 
   const MapMarker({
     required this.id,
@@ -23,6 +24,7 @@ class MapMarker {
     this.isCurrentUser = false,
     this.bearing,
     this.accuracy,
+    this.photoUrl,
   });
 
   @override

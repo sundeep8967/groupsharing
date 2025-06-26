@@ -3,10 +3,13 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../../providers/auth_provider.dart' as app_auth;
 import 'package:cached_network_image/cached_network_image.dart';
-import '../../services/friend_service.dart'; // Adjust path if necessary
-import '../../models/user_model.dart';    // Adjust path if necessary
-import '../../providers/location_provider.dart'; // Adjust path if necessary
+import '../../services/friend_service.dart';
+import '../../models/user_model.dart';
+import '../../models/friend_relationship.dart';
+import '../../models/friendship_model.dart';
+import '../../providers/location_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'friend_details_screen.dart';
 
 class FriendsFamilyScreen extends StatefulWidget {
   const FriendsFamilyScreen({super.key});
@@ -18,6 +21,23 @@ class FriendsFamilyScreen extends StatefulWidget {
 class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
   final FriendService _friendService = FriendService();
   final Map<String, Map<String, String?>> _addressCache = {};
+  
+  // Tab controller for the three sections
+  int _selectedTabIndex = 0; // 0: All, 1: Family, 2: Friends
+
+  /// Navigates to friend details screen when a friend is tapped
+  void _navigateToFriendDetails(FriendRelationship friendRelationship) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => FriendDetailsScreen(
+          friendId: friendRelationship.user.id,
+          friendName: friendRelationship.user.displayName ?? 'Friend',
+          friendshipId: friendRelationship.friendshipId,
+          currentCategory: friendRelationship.category,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,83 +45,362 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     if (user == null) {
       return const Center(child: Text('Please log in.'));
     }
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Friends & Family',
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 20,
+    return Column(
+      children: [
+        // Custom App Bar
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.only(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 16,
+            right: 16,
+            bottom: 8,
+          ),
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            border: Border(
+              bottom: BorderSide(
+                color: Colors.grey.withOpacity(0.2),
+                width: 0.5,
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Friends & Family',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 20,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              Consumer<LocationProvider>(
+                builder: (context, locationProvider, child) {
+                  // Initialize the provider if not already initialized
+                  if (!locationProvider.isInitialized) {
+                    // Trigger initialization
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) {
+                        locationProvider.initialize();
+                      }
+                    });
+                    
+                    return Container(
+                      width: 120,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: Colors.grey.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: const Center(
+                        child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    );
+                  }
+                  
+                  return _buildLocationToggle(locationProvider, user);
+                },
+              ),
+            ],
           ),
         ),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        surfaceTintColor: Colors.transparent,
-        actions: [
-          Consumer<LocationProvider>(
-            builder: (context, locationProvider, child) {
-              // Show loading state until provider is initialized
-              if (!locationProvider.isInitialized) {
-                return Container(
-                  width: 140,
-                  height: 40,
-                  margin: const EdgeInsets.only(right: 16.0, top: 8, bottom: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: Colors.grey.withOpacity(0.3),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: const Center(
-                    child: SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                );
-              }
-              
-              return _buildLocationToggle(locationProvider, user);
-            },
+        
+        // Tab selector
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.grey.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
           ),
-        ],
-      ),
-      body: StreamBuilder<List<UserModel>>(
-        stream: _friendService.getFriends(user.uid),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-          final List<UserModel> friends = snapshot.data ?? [];
-          if (friends.isEmpty) {
-            return Center(
-              child: Text(
-                'No friends yet. Add some!',
-                style: Theme.of(context).textTheme.bodyLarge,
+          child: Row(
+            children: [
+              _buildTabButton('All', 0, Icons.group),
+              _buildTabButton('Family', 1, Icons.family_restroom),
+              _buildTabButton('Friends', 2, Icons.people),
+            ],
+          ),
+        ),
+        
+        // Content with proper SafeArea
+        Expanded(
+          child: SafeArea(
+            top: false,
+            child: StreamBuilder<List<FriendRelationship>>(
+              stream: _friendService.getFriendsWithCategories(user.uid),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
+                }
+                final List<FriendRelationship> friendRelationships = snapshot.data ?? [];
+                if (friendRelationships.isEmpty) {
+                  return Center(
+                    child: Text(
+                      'No friends yet. Add some!',
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  );
+                }
+                
+                return _buildSelectedTabContent(friendRelationships);
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Builds a tab button for the three sections
+  Widget _buildTabButton(String title, int index, IconData icon) {
+    final isSelected = _selectedTabIndex == index;
+    
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _selectedTabIndex = index),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          margin: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: isSelected ? Theme.of(context).primaryColor : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: isSelected ? Colors.white : Colors.grey[600],
               ),
-            );
-          }
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: friends.length,
-            separatorBuilder: (context, i) => const SizedBox(height: 12),
-            itemBuilder: (context, i) {
-              final UserModel friend = friends[i];
-              return _FriendListItem(friend: friend);
-            },
-          );
-        },
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: isSelected ? Colors.white : Colors.grey[600],
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
+  /// Builds content based on selected tab
+  Widget _buildSelectedTabContent(List<FriendRelationship> friendRelationships) {
+    // Group friends by category
+    final familyMembers = friendRelationships
+        .where((fr) => fr.category == FriendshipCategory.family)
+        .toList();
+    final friends = friendRelationships
+        .where((fr) => fr.category == FriendshipCategory.friend)
+        .toList();
+    
+    switch (_selectedTabIndex) {
+      case 0: // All
+        return _buildAllFriendsTab(friendRelationships, familyMembers, friends);
+      case 1: // Family
+        return _buildFamilyTab(familyMembers);
+      case 2: // Friends
+        return _buildFriendsTab(friends);
+      default:
+        return _buildAllFriendsTab(friendRelationships, familyMembers, friends);
+    }
+  }
+
+  /// Builds the "All" tab content with both sections
+  Widget _buildAllFriendsTab(
+    List<FriendRelationship> allFriends,
+    List<FriendRelationship> familyMembers,
+    List<FriendRelationship> friends,
+  ) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // Family Section
+        if (familyMembers.isNotEmpty) ...[
+          _buildCategoryHeader('Family', familyMembers.length, Icons.family_restroom),
+          const SizedBox(height: 8),
+          ...familyMembers.map((friendRelationship) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _FriendListItem(
+              friendRelationship: friendRelationship,
+              onTap: _navigateToFriendDetails,
+            ),
+          )),
+          const SizedBox(height: 16),
+        ],
+        
+        // Friends Section
+        if (friends.isNotEmpty) ...[
+          _buildCategoryHeader('Friends', friends.length, Icons.people),
+          const SizedBox(height: 8),
+          ...friends.map((friendRelationship) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _FriendListItem(
+              friendRelationship: friendRelationship,
+              onTap: _navigateToFriendDetails,
+            ),
+          )),
+        ],
+      ],
+    );
+  }
+
+  /// Builds the "Family" tab content
+  Widget _buildFamilyTab(List<FriendRelationship> familyMembers) {
+    if (familyMembers.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.family_restroom,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No family members yet',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Friends are categorized as family by default.\nYou can change categories in friend details.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[500],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildCategoryHeader('Family Members', familyMembers.length, Icons.family_restroom),
+        const SizedBox(height: 16),
+        ...familyMembers.map((friendRelationship) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: _FriendListItem(
+            friendRelationship: friendRelationship,
+            onTap: _navigateToFriendDetails,
+          ),
+        )),
+      ],
+    );
+  }
+
+  /// Builds the "Friends" tab content
+  Widget _buildFriendsTab(List<FriendRelationship> friends) {
+    if (friends.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.people,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No friends in this category yet',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'You can change friend categories to "Friend"\nin their details page.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[500],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildCategoryHeader('Friends', friends.length, Icons.people),
+        const SizedBox(height: 16),
+        ...friends.map((friendRelationship) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: _FriendListItem(
+            friendRelationship: friendRelationship,
+            onTap: _navigateToFriendDetails,
+          ),
+        )),
+      ],
+    );
+  }
+
+
+  Widget _buildCategoryHeader(String title, int count, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: Theme.of(context).primaryColor),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: Theme.of(context).primaryColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            '$count',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).primaryColor,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
   Widget _buildLocationToggle(LocationProvider locationProvider, firebase_auth.User user) {
     final isOn = locationProvider.isTracking;
@@ -109,7 +408,6 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     return Container(
       width: 120,
       height: 36,
-      margin: const EdgeInsets.only(right: 16, top: 6, bottom: 6),
       decoration: BoxDecoration(
         color: isOn ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
         borderRadius: BorderRadius.circular(20),
@@ -119,43 +417,50 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
         ),
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Icon and text
-          Expanded(
+          // Icon and text section with flexible sizing
+          Flexible(
             child: Padding(
-              padding: const EdgeInsets.only(left: 12),
+              padding: const EdgeInsets.only(left: 8),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
                     isOn ? Icons.location_on : Icons.location_off,
-                    size: 14,
+                    size: 12,
                     color: isOn ? Colors.green : Colors.grey[600],
                   ),
-                  const SizedBox(width: 6),
-                  Text(
-                    isOn ? 'ON' : 'OFF',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: isOn ? Colors.green : Colors.grey[600],
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      isOn ? 'ON' : 'OFF',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: isOn ? Colors.green : Colors.grey[600],
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
             ),
           ),
-          // Switch
-          Transform.scale(
-            scale: 0.7,
-            child: Switch(
-              value: isOn,
-              onChanged: (value) => _handleToggle(value, locationProvider, user),
-              activeColor: Colors.green,
-              activeTrackColor: Colors.green.withOpacity(0.3),
-              inactiveThumbColor: Colors.grey[400],
-              inactiveTrackColor: Colors.grey[300],
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          // Switch with fixed size
+          SizedBox(
+            width: 40,
+            child: Transform.scale(
+              scale: 0.6,
+              child: Switch(
+                value: isOn,
+                onChanged: (value) => _handleToggle(value, locationProvider, user),
+                activeColor: Colors.green,
+                activeTrackColor: Colors.green.withOpacity(0.3),
+                inactiveThumbColor: Colors.grey[400],
+                inactiveTrackColor: Colors.grey[300],
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
             ),
           ),
         ],
@@ -163,13 +468,34 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     );
   }
 
-  void _handleToggle(bool value, LocationProvider locationProvider, firebase_auth.User user) {
-    if (value) {
-      locationProvider.startTracking(user.uid);
-      _showSnackBar('Location sharing turned ON', Colors.green, Icons.check_circle);
-    } else {
-      locationProvider.stopTracking();
-      _showSnackBar('Location sharing turned OFF', Colors.orange, Icons.location_off);
+  void _handleToggle(bool value, LocationProvider locationProvider, firebase_auth.User user) async {
+    print('Toggle pressed: $value, current tracking: ${locationProvider.isTracking}');
+    
+    // Prevent double-toggling
+    if (value == locationProvider.isTracking) {
+      print('Toggle value same as current state, ignoring');
+      return;
+    }
+    
+    try {
+      if (value) {
+        print('Starting location tracking for user: ${user.uid}');
+        await locationProvider.startTracking(user.uid);
+        if (mounted) {
+          _showSnackBar('Location sharing turned ON - Friends can see your location', Colors.green, Icons.check_circle);
+        }
+      } else {
+        print('Stopping location tracking');
+        await locationProvider.stopTracking();
+        if (mounted) {
+          _showSnackBar('Location sharing turned OFF - You appear offline to friends', Colors.orange, Icons.location_off);
+        }
+      }
+    } catch (e) {
+      print('Error toggling location sharing: $e');
+      if (mounted) {
+        _showSnackBar('Error: ${e.toString()}', Colors.red, Icons.error);
+      }
     }
   }
 
@@ -193,14 +519,19 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
   }
 }
 
-// Separate widget for each friend item to optimize rebuilds
+// Updated friend list item to work with FriendRelationship
 class _FriendListItem extends StatelessWidget {
-  final UserModel friend;
+  final FriendRelationship friendRelationship;
+  final void Function(FriendRelationship) onTap;
   
-  const _FriendListItem({required this.friend});
+  const _FriendListItem({
+    required this.friendRelationship,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final friend = friendRelationship.user;
     return Card(
       elevation: 0,
       color: Theme.of(context).colorScheme.surface,
@@ -211,14 +542,44 @@ class _FriendListItem extends StatelessWidget {
               : null,
           child: friend.photoUrl == null ? const Icon(Icons.person) : null,
         ),
-        title: Text(friend.displayName ?? 'Friend', style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        title: Row(
           children: [
-            Text(friend.email),
-            _FriendAddressSection(friend: friend),
+            Expanded(
+              child: Text(
+                friend.displayName ?? 'Friend', 
+                style: const TextStyle(fontWeight: FontWeight.bold)
+              ),
+            ),
+            // Category badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: friendRelationship.category == FriendshipCategory.family 
+                    ? Colors.purple.withOpacity(0.1)
+                    : Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: friendRelationship.category == FriendshipCategory.family 
+                      ? Colors.purple.withOpacity(0.3)
+                      : Colors.blue.withOpacity(0.3),
+                  width: 1,
+                ),
+              ),
+              child: Text(
+                friendRelationship.categoryDisplayName,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: friendRelationship.category == FriendshipCategory.family 
+                      ? Colors.purple[700]
+                      : Colors.blue[700],
+                ),
+              ),
+            ),
           ],
         ),
+        subtitle: _FriendAddressSection(friend: friend),
+        onTap: () => onTap(friendRelationship),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -233,10 +594,8 @@ class _FriendListItem extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            // Location sharing status indicator - Only this part rebuilds
             _LocationStatusIndicator(friend: friend),
             const SizedBox(width: 4),
-            // Google Maps button - Only this part rebuilds
             _GoogleMapsButton(friend: friend),
           ],
         ),
@@ -246,12 +605,11 @@ class _FriendListItem extends StatelessWidget {
 
   bool _isOnline(UserModel friend) {
     if (friend.lastSeen == null) return false;
-    // Consider a threshold, e.g., 5 minutes for "online"
     return DateTime.now().difference(friend.lastSeen!).inMinutes < 5;
   }
 }
 
-// Separate widget for location status indicator to minimize rebuilds
+// Keep the existing location status indicator
 class _LocationStatusIndicator extends StatelessWidget {
   final UserModel friend;
   
@@ -302,7 +660,7 @@ class _LocationStatusIndicator extends StatelessWidget {
   }
 }
 
-// Separate widget for Google Maps button to minimize rebuilds
+// Keep the existing Google Maps button
 class _GoogleMapsButton extends StatelessWidget {
   final UserModel friend;
   
@@ -343,7 +701,6 @@ class _GoogleMapsButton extends StatelessWidget {
             },
           );
         } else {
-          // Show disabled map icon when location sharing is OFF
           return IconButton(
             icon: Container(
               width: 32,
@@ -381,8 +738,8 @@ class _GoogleMapsButton extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color(0xFF4285F4), // Google Blue
-            Color(0xFF1A73E8), // Darker Google Blue
+            Color(0xFF4285F4),
+            Color(0xFF1A73E8),
           ],
         ),
         borderRadius: BorderRadius.circular(16),
@@ -413,6 +770,7 @@ class _GoogleMapsButton extends StatelessWidget {
   }
 }
 
+// Keep the existing address section
 class _FriendAddressSection extends StatefulWidget {
   final UserModel friend;
   const _FriendAddressSection({required this.friend});

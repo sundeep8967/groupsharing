@@ -7,12 +7,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/location_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../utils/performance_optimizer.dart';
 
 /// Enhanced LocationProvider with REAL-TIME push notifications
 /// This version uses Firebase Realtime Database for instant synchronization
 class LocationProvider with ChangeNotifier {
   final LocationService _locationService = LocationService();
   final FirebaseDatabase _realtimeDb = FirebaseDatabase.instance;
+  final PerformanceOptimizer _performanceOptimizer = PerformanceOptimizer();
   
   // Subscriptions for real-time updates
   StreamSubscription<Position>? _locationSubscription;
@@ -50,6 +52,10 @@ class LocationProvider with ChangeNotifier {
   
   // Debounce timer to prevent excessive notifications
   Timer? _notificationDebounceTimer;
+  
+  // Performance optimization
+  DateTime? _lastLocationUpdate;
+  DateTime? _lastFirebaseUpdate;
 
   // Getters
   LatLng? get currentLocation => _currentLocation;
@@ -69,16 +75,35 @@ class LocationProvider with ChangeNotifier {
 
   // Check if a specific user is sharing their location
   bool isUserSharingLocation(String userId) {
-    return _userSharingStatus[userId] == true;
+    if (userId.isEmpty) return false;
+    return _userSharingStatus[userId] == true && _userLocations.containsKey(userId);
   }
 
+  // Guard to prevent multiple simultaneous location requests
+  bool _isGettingLocation = false;
+  DateTime? _lastLocationRequestTime;
+  
   // Get current location for map display (without starting tracking)
   Future<void> getCurrentLocationForMap() async {
     if (_currentLocation != null) {
-      _log('Current location already available: ${_currentLocation!.latitude}, ${_currentLocation!.longitude}');
+      _log('Current location already available: ${_currentLocation?.latitude}, ${_currentLocation?.longitude}');
       return;
     }
     
+    if (_isGettingLocation) {
+      _log('Location request already in progress, skipping');
+      return;
+    }
+    
+    // Add cooldown period to prevent excessive requests
+    final now = DateTime.now();
+    if (_lastLocationRequestTime != null && 
+        now.difference(_lastLocationRequestTime!) < const Duration(seconds: 5)) {
+      _log('Location request too frequent, skipping (cooldown: 5s)');
+      return;
+    }
+    
+    _isGettingLocation = true;
     _log('=== GETTING CURRENT LOCATION FOR MAP ===');
     try {
       _status = 'Getting your location...';
@@ -126,7 +151,7 @@ class LocationProvider with ChangeNotifier {
       
       _currentLocation = LatLng(position.latitude, position.longitude);
       _status = 'Location found';
-      _log('SUCCESS: Current location set to ${_currentLocation!.latitude}, ${_currentLocation!.longitude}');
+      _log('SUCCESS: Current location set to ${_currentLocation?.latitude}, ${_currentLocation?.longitude}');
       
       if (_mounted) notifyListeners();
     } catch (e) {
@@ -134,6 +159,9 @@ class LocationProvider with ChangeNotifier {
       _error = 'Failed to get location: ${e.toString()}';
       _status = 'Location error';
       if (_mounted) notifyListeners();
+    } finally {
+      _isGettingLocation = false;
+      _lastLocationRequestTime = DateTime.now();
     }
   }
 
@@ -144,7 +172,7 @@ class LocationProvider with ChangeNotifier {
     _currentLocation = LatLng(37.7749, -122.4194);
     _status = 'Demo location set';
     _error = null;
-    _log('Demo location set: ${_currentLocation!.latitude}, ${_currentLocation!.longitude}');
+    _log('Demo location set: ${_currentLocation?.latitude}, ${_currentLocation?.longitude}');
     if (_mounted) notifyListeners();
   }
 
@@ -154,8 +182,14 @@ class LocationProvider with ChangeNotifier {
     return prefs.getString('user_id');
   }
 
+  // Throttle logging to prevent excessive output
+  DateTime? _lastLogTime;
   void _log(String message) {
-    debugPrint('REALTIME_PROVIDER: $message');
+    final now = DateTime.now();
+    if (_lastLogTime == null || now.difference(_lastLogTime!) > const Duration(milliseconds: 100)) {
+      debugPrint('REALTIME_PROVIDER: $message');
+      _lastLogTime = now;
+    }
   }
 
   // Start monitoring location service status changes
@@ -392,7 +426,8 @@ class LocationProvider with ChangeNotifier {
   // Debounced notification to prevent excessive rebuilds
   void _notifyListenersDebounced() {
     _notificationDebounceTimer?.cancel();
-    _notificationDebounceTimer = Timer(const Duration(milliseconds: 100), () {
+    final debounceInterval = _performanceOptimizer.getOptimizedDebounceInterval();
+    _notificationDebounceTimer = Timer(debounceInterval, () {
       if (_mounted) {
         notifyListeners();
       }
@@ -406,6 +441,9 @@ class LocationProvider with ChangeNotifier {
       _log('Already initialized, returning');
       return;
     }
+    
+    // Initialize performance optimizer
+    await _performanceOptimizer.initialize();
     
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -435,17 +473,24 @@ class LocationProvider with ChangeNotifier {
       // If location sharing was enabled and we have a user ID, restart tracking
       if (isLocationSharingEnabled && savedUserId != null) {
         _log('Auto-restarting location tracking');
-        _updateLocationSharingStatus(savedUserId, true);
         
-        Future.delayed(const Duration(milliseconds: 100), () {
-          startTracking(savedUserId).catchError((e) {
-            _log('Error restarting location tracking: $e');
-            _isTracking = false;
-            _updateLocationSharingStatus(savedUserId, false);
-            if (_mounted) notifyListeners();
-          });
+        // Don't update Firebase status immediately - let startTracking handle it
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (_mounted) {
+            startTracking(savedUserId).catchError((e) {
+              _log('Error restarting location tracking: $e');
+              _isTracking = false;
+              if (_mounted) notifyListeners();
+              
+              // Save the failed state to prevent auto-restart loop
+              SharedPreferences.getInstance().then((prefs) {
+                prefs.setBool('location_sharing_enabled', false);
+              });
+            });
+          }
         });
       } else if (savedUserId != null) {
+        // Only update status if tracking was explicitly disabled
         _updateLocationSharingStatus(savedUserId, false);
       }
       
@@ -486,10 +531,10 @@ class LocationProvider with ChangeNotifier {
             prefs.setBool('location_sharing_enabled', realtimeIsTracking);
           });
           
-          // Update status message
+          // Update status message - keep it neutral for map display
           _status = realtimeIsTracking 
-              ? 'Location sharing enabled from another device'
-              : 'Location sharing disabled from another device';
+              ? 'Location sharing enabled'
+              : 'Ready to share location';
           
           if (_mounted) notifyListeners();
           
@@ -818,9 +863,6 @@ class LocationProvider with ChangeNotifier {
       if (_mounted) notifyListeners();
 
       LatLng? lastLocation;
-      DateTime lastUpdate = DateTime.now();
-      const double minDistance = 20.0;
-      const Duration minInterval = Duration(seconds: 5);
 
       _status = 'Starting location tracking...';
       if (_mounted) notifyListeners();
@@ -828,37 +870,53 @@ class LocationProvider with ChangeNotifier {
       _locationSubscription = await _locationService.startTracking(
         userId,
         (LatLng location) async {
+          _performanceOptimizer.startOperation('location_update');
           _log('Location update received: ${location.latitude}, ${location.longitude}');
           
           // Check if location services are still enabled
           if (!_locationServiceEnabled) {
             _log('Location service disabled, cannot update location');
+            _performanceOptimizer.endOperation('location_update');
             return;
           }
           
           final now = DateTime.now();
+          
+          // Performance-aware update intervals
+          final optimizedInterval = _performanceOptimizer.getOptimizedLocationInterval();
+          final optimizedDistance = _performanceOptimizer.getOptimizedLocationAccuracy();
+          
           bool shouldUpdate = false;
-          if (lastLocation == null) {
+          if (lastLocation == null || _lastLocationUpdate == null) {
             shouldUpdate = true;
           } else {
             final distance = const Distance().as(LengthUnit.Meter, lastLocation!, location);
-            final timeDiff = now.difference(lastUpdate);
-            shouldUpdate = distance > minDistance || timeDiff > minInterval;
+            final timeDiff = now.difference(_lastLocationUpdate!);
+            shouldUpdate = distance > optimizedDistance || timeDiff > optimizedInterval;
           }
+          
           if (shouldUpdate) {
             lastLocation = location;
-            lastUpdate = now;
+            _lastLocationUpdate = now;
             _currentLocation = location;
             _userLocations[userId] = location;
             _status = 'Location sharing active';
-            _log('Updated current location');
+            _log('Updated current location (optimized)');
             
-            // Update BOTH databases for instant sync and persistence
-            await _updateLocationInBothDatabases(userId, location);
+            // Performance-aware Firebase updates
+            final firebaseInterval = _performanceOptimizer.getOptimizedFirebaseUpdateInterval();
+            if (_lastFirebaseUpdate == null || 
+                now.difference(_lastFirebaseUpdate!) > firebaseInterval) {
+              await _updateLocationInBothDatabases(userId, location);
+              _lastFirebaseUpdate = now;
+            }
+            
             await _getAddressFromCoordinates(location.latitude, location.longitude);
             
             if (_mounted) notifyListeners();
           }
+          
+          _performanceOptimizer.endOperation('location_update');
         },
       );
 
@@ -1109,6 +1167,9 @@ class LocationProvider with ChangeNotifier {
     
     // Clean up user data when app is being disposed
     cleanupUserData();
+    
+    // Dispose performance optimizer
+    _performanceOptimizer.dispose();
     
     _notificationDebounceTimer?.cancel(); // Cancel debounce timer
     _locationSubscription?.cancel();

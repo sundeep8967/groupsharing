@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:groupsharing/widgets/modern_map.dart';
+import 'package:groupsharing/widgets/smooth_modern_map.dart';
 import 'package:groupsharing/models/map_marker.dart';
 import 'package:groupsharing/services/deep_link_service.dart';
 import '../../providers/auth_provider.dart' as app_auth;
@@ -29,7 +28,6 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   Set<MapMarker> _cachedMarkers = {};
-  List<String> _lastNearbyUsers = [];
 
   // Store last map center/zoom
   LatLng? _lastMapCenter;
@@ -46,14 +44,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   bool _locationEnabled = true;
   StreamSubscription<ServiceStatus>? _serviceStatusSub;
   
-  static const List<Widget> _screens = [
-    FriendsFamilyScreen(),
-    // Map screen is built dynamically
-    SizedBox(),
-    AddFriendsScreen(),
-    ProfileScreen(),
-    NotificationScreen(),
-  ];
   
   @override
   void initState() {
@@ -249,28 +239,35 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ],
           ),
         ),
-        if (!_locationEnabled)
-          Positioned.fill(
+        // Show a small notification instead of blocking the entire map
+        if (!_locationEnabled && _selectedIndex == 1) // Only show on map tab
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 16,
+            left: 16,
+            right: 16,
             child: Container(
-              color: Colors.black.withOpacity(0.7),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.location_off, color: Colors.white, size: 64),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Location is Off',
-                      style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.location_off, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Location services are off. Turn on to share your location.',
+                      style: TextStyle(color: Colors.white, fontSize: 14),
                     ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Location services are disabled.\nPlease turn on location to use this app.',
-                      style: TextStyle(color: Colors.white, fontSize: 16),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
+                  ),
+                  IconButton(
+                    onPressed: () => setState(() => _locationEnabled = true), // Dismiss notification
+                    icon: const Icon(Icons.close, color: Colors.white, size: 16),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
               ),
             ),
           ),
@@ -281,17 +278,27 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Widget _buildMapScreen() {
     return Consumer2<LocationProvider, app_auth.AuthProvider>(
       builder: (context, locationProvider, authProvider, _) {
-        if (locationProvider.currentLocation == null) {
-          return _buildLoadingScreen(locationProvider, authProvider);
+        // ALWAYS show the map - get current location for map display if needed
+        // Only request location once when first building the map
+        if (locationProvider.currentLocation == null && !locationProvider.isInitialized) {
+          // Try to get current location for map display (non-blocking)
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && locationProvider.currentLocation == null) {
+              locationProvider.getCurrentLocationForMap();
+            }
+          });
         }
 
         // Update markers only when nearby users change
         _updateMarkersIfNeeded(locationProvider);
 
-        final currentLocation = locationProvider.currentLocation!;
+        // Use current location if available, otherwise use a default location or last known location
+        final currentLocation = locationProvider.currentLocation ?? 
+                               _lastMapCenter ?? 
+                               const LatLng(37.7749, -122.4194); // Default to San Francisco if no location
+        
         // Use last map center/zoom unless user requests recenter
         final mapCenter = _lastMapCenter ?? currentLocation;
-        final mapZoom = _lastMapZoom;
 
         return Listener(
           onPointerUp: (_) {
@@ -302,12 +309,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             children: [
               Positioned.fill(
                 child: RepaintBoundary(
-                  child: ModernMap(
-                    key: const ValueKey('main_map'),
+                  child: SmoothModernMap(
+                    key: const ValueKey('smooth_modern_map'),
                     initialPosition: mapCenter,
-                    userLocation: currentLocation,
+                    userLocation: locationProvider.currentLocation, // Only show user location if we have it
                     markers: _cachedMarkers,
-                    showUserLocation: true,
+                    showUserLocation: locationProvider.currentLocation != null, // Only show if we have user location
                     onMarkerTap: (marker) => _showMarkerDetails(context, marker),
                     onMapMoved: (center, zoom) {
                       setState(() {
@@ -340,8 +347,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 ),
               ),
               
-              // Location Info Overlay (only when visible)
-              if (_showLocationInfo)
+              // Location Info Overlay (only when visible and location is available)
+              if (_showLocationInfo && locationProvider.currentLocation != null)
                 Positioned(
                   top: MediaQuery.of(context).padding.top + 130,
                   left: 16,
@@ -408,17 +415,43 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   void _updateMarkersIfNeeded(LocationProvider locationProvider) {
-    // Build markers from userLocations map
+    // Build markers from userLocations map with friend information
     final userLocations = locationProvider.userLocations;
-    final markers = userLocations.entries.map((entry) {
-      return MapMarker(
-        id: entry.key,
-        point: entry.value,
-        label: 'User: ${entry.key}',
-      );
-    }).toSet();
-    if (_cachedMarkers.length != markers.length || !_cachedMarkers.every((m) => markers.contains(m))) {
-      _cachedMarkers = markers;
+    final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+    final currentUserId = authProvider.user?.uid;
+    
+    if (currentUserId == null || userLocations.isEmpty) return;
+    
+    final markers = <MapMarker>{};
+    
+    for (final entry in userLocations.entries) {
+      final userId = entry.key;
+      final location = entry.value;
+      
+      // Null safety checks
+      if (userId.isEmpty || location == null) continue;
+      
+      // Skip current user - they're shown with the user location marker
+      if (userId == currentUserId) continue;
+      
+      // Only show markers for users who are actively sharing location
+      if (!locationProvider.isUserSharingLocation(userId)) continue;
+      
+      // Simple marker without async Firestore calls to prevent null exceptions
+      markers.add(MapMarker(
+        id: userId,
+        point: location,
+        label: 'Friend',
+        color: Colors.blue,
+      ));
+    }
+    
+    // Only update if markers actually changed and we're still mounted
+    if (mounted && (_cachedMarkers.length != markers.length || 
+        !_cachedMarkers.every((m) => markers.any((newM) => newM.id == m.id && newM.point == m.point)))) {
+      setState(() {
+        _cachedMarkers = markers;
+      });
     }
   }
 
@@ -432,58 +465,71 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       duration: const Duration(milliseconds: 300),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(16),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.4,
+        ),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Theme.of(context).cardColor.withOpacity(0.95),
+          color: Theme.of(context).cardColor.withValues(alpha: 0.95),
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Location Info',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () => setState(() => _showLocationInfo = false),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              
+              // Coordinates
+              _buildInfoRow(
+                Icons.gps_fixed,
+                'Coordinates',
+                'Lat: $lat\nLng: $lng',
+              ),
+              
+              // Address information
+              const SizedBox(height: 12),
+              if (locationProvider.currentAddress != null) 
+                _buildInfoRow(
+                  Icons.location_on,
+                  'Address',
+                  locationProvider.currentAddress!,
+                )
+              else
                 const Text(
-                  'Location Info',
+                  'Getting address...',
                   style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                    fontStyle: FontStyle.italic,
+                    fontSize: 13,
+                    color: Colors.grey,
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 20),
-                  onPressed: () => setState(() => _showLocationInfo = false),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            
-            // Coordinates
-            _buildInfoRow(
-              Icons.gps_fixed,
-              'Coordinates',
-              'Lat: $lat\nLng: $lng',
-            ),
-            
-            // Address information
-            if (locationProvider.currentAddress != null) ...[
-              const SizedBox(height: 12),
-              _buildInfoRow(
-                Icons.location_on,
-                'Address',
-                locationProvider.currentAddress!,
-              ),
               
               if (locationProvider.city != null) ...[
                 const SizedBox(height: 8),
@@ -503,18 +549,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   locationProvider.postalCode!,
                 ),
               ],
-            ] else ...[
-              const SizedBox(height: 8),
-              const Text(
-                'Getting address...',
-                style: TextStyle(
-                  fontStyle: FontStyle.italic,
-                  fontSize: 13,
-                  color: Colors.grey,
-                ),
-              ),
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -565,7 +601,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Widget _buildBottomControls(LocationProvider locationProvider, app_auth.AuthProvider authProvider) {
     return Container(
-      padding: const EdgeInsets.all(16.0),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.3, // Limit height to 30% of screen
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
         borderRadius: const BorderRadius.only(
@@ -574,102 +613,98 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 8,
             offset: const Offset(0, -2),
           ),
         ],
       ),
       child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Drag handle
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            
-            // Nearby users count
-            Row(
-              children: [
-                Icon(
-                  Icons.people,
-                  size: 20,
-                  color: Theme.of(context).primaryColor,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Nearby Users: ${locationProvider.nearbyUsers.length}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+        top: false, // Don't add top padding since we're at the bottom
+        child: SingleChildScrollView( // Make it scrollable to prevent overflow
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-              ],
-            ),
-            
-            const SizedBox(height: 12),
-            
-            // Tracking toggle button
-            ElevatedButton.icon(
-              onPressed: () {
-                final appUser = authProvider.user;
-                if (appUser == null) return;
-                
-                if (locationProvider.isTracking) {
-                  locationProvider.stopTracking();
-                } else {
-                  locationProvider.startTracking(appUser.uid);
-                }
-              },
-              icon: Icon(
-                locationProvider.isTracking
-                    ? Icons.location_on
-                    : Icons.location_off,
               ),
-              label: Text(
-                locationProvider.isTracking
-                    ? 'Stop Sharing Location'
-                    : 'Start Sharing Location',
+              
+              // Nearby users count - make it more compact
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.people,
+                    size: 18,
+                    color: Theme.of(context).primaryColor,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      'Nearby Users: ${locationProvider.nearbyUsers.length}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                backgroundColor: locationProvider.isTracking
-                    ? Colors.red
-                    : Theme.of(context).primaryColor,
-                foregroundColor: Colors.white,
-              ),
-            ),
-            
-            const SizedBox(height: 8),
-            
-            // Debug buttons (only in debug mode)
-            if (kDebugMode) ...[
-              TextButton.icon(
-                onPressed: () => Navigator.pushNamed(context, '/test-sync'),
-                icon: const Icon(Icons.bug_report),
-                label: const Text('Test Real-time Sync'),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.grey[600],
-                ),
-              ),
-              TextButton.icon(
-                onPressed: () => Navigator.pushNamed(context, '/test-push'),
-                icon: const Icon(Icons.notifications_active),
-                label: const Text('Test Push Notifications'),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.grey[600],
+              
+              const SizedBox(height: 10),
+              
+              // Tracking toggle button - more compact
+              SizedBox(
+                height: 48, // Fixed height to prevent overflow
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    final appUser = authProvider.user;
+                    if (appUser == null) return;
+                    
+                    if (locationProvider.isTracking) {
+                      locationProvider.stopTracking();
+                    } else {
+                      locationProvider.startTracking(appUser.uid);
+                    }
+                  },
+                  icon: Icon(
+                    locationProvider.isTracking
+                        ? Icons.location_on
+                        : Icons.location_off,
+                    size: 20,
+                  ),
+                  label: Text(
+                    locationProvider.isTracking
+                        ? 'Stop Sharing'
+                        : 'Start Sharing',
+                    style: const TextStyle(fontSize: 14),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    backgroundColor: locationProvider.isTracking
+                        ? Colors.red
+                        : Theme.of(context).primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
               ),
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -678,30 +713,175 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void _showMarkerDetails(BuildContext context, MapMarker marker) {
     showModalBottomSheet(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Handle bar
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            
+            // Profile picture or initials
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: marker.color ?? Colors.blue,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 4),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: marker.photoUrl != null
+                  ? ClipOval(
+                      child: Image.network(
+                        marker.photoUrl!,
+                        width: 80,
+                        height: 80,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return _buildInitialsAvatar(marker);
+                        },
+                      ),
+                    )
+                  : _buildInitialsAvatar(marker),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Friend name
             Text(
-              marker.label ?? 'Unknown User',
+              marker.label ?? 'Unknown Friend',
               style: const TextStyle(
-                fontSize: 18,
+                fontSize: 20,
                 fontWeight: FontWeight.bold,
               ),
             ),
+            
             const SizedBox(height: 8),
-            Text(
-              'Lat: ${marker.point.latitude.toStringAsFixed(6)}\n'
-              'Lng: ${marker.point.longitude.toStringAsFixed(6)}',
-              textAlign: TextAlign.center,
+            
+            // Online status
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.circle, color: Colors.green, size: 8),
+                  SizedBox(width: 6),
+                  Text(
+                    'Sharing Location',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
             ),
+            
             const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
+            
+            // Location coordinates (for debugging)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  const Text(
+                    'Location Coordinates',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Lat: ${marker.point.latitude.toStringAsFixed(6)}\n'
+                    'Lng: ${marker.point.longitude.toStringAsFixed(6)}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Action buttons
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    label: const Text('Close'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      // TODO: Navigate to friend details or start navigation
+                    },
+                    icon: const Icon(Icons.directions),
+                    label: const Text('Navigate'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInitialsAvatar(MapMarker marker) {
+    return Container(
+      width: 80,
+      height: 80,
+      decoration: BoxDecoration(
+        color: marker.color ?? Colors.blue,
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Text(
+          marker.label?.substring(0, 1).toUpperCase() ?? 'F',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 24,
+          ),
         ),
       ),
     );

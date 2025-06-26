@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import '../models/location_model.dart';
 import 'firebase_service.dart';
 import 'device_info_service.dart';
+import '../utils/performance_optimizer.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +16,7 @@ import 'package:flutter/services.dart';
 class LocationService {
   final FirebaseDatabase _realtimeDb = FirebaseDatabase.instance;
   final FirebaseFirestore _firestore = FirebaseService.firestore;
+  final PerformanceOptimizer _performanceOptimizer = PerformanceOptimizer();
   static StreamSubscription<Position>? _positionStream;
   static const MethodChannel _bgChannel = MethodChannel('background_location');
   
@@ -97,10 +99,12 @@ class LocationService {
       debugPrint('Error getting initial position: $e');
     }
 
-    // Configure location settings for background updates
-    const LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 25, // Update every ~25 meters to reduce redraws
+    // Configure optimized location settings based on device performance
+    final optimizedAccuracy = _performanceOptimizer.getOptimizedLocationAccuracy();
+    final LocationSettings locationSettings = LocationSettings(
+      accuracy: optimizedAccuracy <= 25 ? LocationAccuracy.high : 
+                optimizedAccuracy <= 50 ? LocationAccuracy.medium : LocationAccuracy.low,
+      distanceFilter: optimizedAccuracy.round(), // Use optimized distance filter (convert to int)
     );
 
     // Background service disabled - using Flutter-based real-time updates instead

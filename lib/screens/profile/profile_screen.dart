@@ -13,7 +13,6 @@ import '../../services/deep_link_service.dart';
 import '../../models/saved_place.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -96,12 +95,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onPressed: _refreshProfileData,
             tooltip: 'Refresh Profile',
           ),
-          if (kDebugMode)
-            IconButton(
-              icon: const Icon(Icons.bug_report, size: 24),
-              onPressed: () => Navigator.pushNamed(context, '/debug-profile'),
-              tooltip: 'Debug Profile Picture',
-            ),
           IconButton(
             icon: const Icon(Icons.exit_to_app, size: 24),
             onPressed: _isSigningOut ? null : () async {

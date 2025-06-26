@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart' as latlong;
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:groupsharing/widgets/modern_map.dart';
+import 'package:groupsharing/widgets/smooth_modern_map.dart';
 import 'package:groupsharing/providers/location_provider.dart';
 import 'package:groupsharing/providers/auth_provider.dart' as app_auth;
 import 'package:groupsharing/services/friend_service.dart';
@@ -125,9 +125,9 @@ class _LocationSharingScreenState extends State<LocationSharingScreen> {
           ),
           body: Stack(
             children: [
-              // Map View
+              // Map View - Ultra-smooth optimized map
               if (currentLocation != null)
-                ModernMap(
+                SmoothModernMap(
                   initialPosition: currentLocation,
                   userLocation: currentLocation,
                   markers: const {},
