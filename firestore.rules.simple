@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allows read/write only if the user is authenticated
+    // TEMPORARY: Use this for debugging sign-in issues
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

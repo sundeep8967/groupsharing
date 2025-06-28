@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,9 +13,20 @@ import 'screens/auth/login_screen.dart';
 import 'screens/main/main_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
+import 'screens/performance_monitor_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Configure system UI overlay style for better status bar visibility
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent, // Transparent status bar
+    statusBarIconBrightness: Brightness.dark, // Dark icons for light backgrounds
+    statusBarBrightness: Brightness.light, // Light status bar for iOS
+    systemNavigationBarColor: Colors.white, // Navigation bar color
+    systemNavigationBarIconBrightness: Brightness.dark, // Dark navigation icons
+  ));
+  
   try {
     await FMTCObjectBoxBackend().initialise();
   } catch (error) {
@@ -32,10 +44,73 @@ void main() async {
   runApp(MyApp(isOnboardingComplete: isOnboardingComplete));
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   final bool isOnboardingComplete;
   
   const MyApp({super.key, required this.isOnboardingComplete});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  LocationProvider? _locationProvider;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    // Handle app lifecycle changes
+    switch (state) {
+      case AppLifecycleState.detached:
+        // App is being terminated - clean up user data
+        _handleAppTermination();
+        break;
+      case AppLifecycleState.paused:
+        // App is paused but not terminated
+        _handleAppPaused();
+        break;
+      case AppLifecycleState.resumed:
+        // App is resumed
+        _handleAppResumed();
+        break;
+      case AppLifecycleState.inactive:
+        // App is inactive
+        break;
+      case AppLifecycleState.hidden:
+        // App is hidden
+        break;
+    }
+  }
+
+  void _handleAppTermination() {
+    debugPrint('=== APP TERMINATION DETECTED ===');
+    // Clean up user data when app is being terminated/uninstalled
+    _locationProvider?.cleanupUserData();
+  }
+
+  void _handleAppPaused() {
+    debugPrint('=== APP PAUSED ===');
+    // App is paused but not terminated - no cleanup needed
+  }
+
+  void _handleAppResumed() {
+    debugPrint('=== APP RESUMED ===');
+    // App is resumed - reinitialize if needed
+    _locationProvider?.initialize();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,6 +120,8 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) {
             final locationProvider = LocationProvider();
+            // Store reference for lifecycle management
+            _locationProvider = locationProvider;
             // Initialize the provider with saved state
             locationProvider.initialize();
             return locationProvider;
@@ -57,10 +134,17 @@ class MyApp extends StatelessWidget {
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
           useMaterial3: true,
+          appBarTheme: const AppBarTheme(
+            systemOverlayStyle: SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness: Brightness.dark,
+              statusBarBrightness: Brightness.light,
+            ),
+          ),
         ),
         home: Consumer<AuthProvider>(
           builder: (context, auth, _) {
-            if (!isOnboardingComplete) {
+            if (!widget.isOnboardingComplete) {
               return const OnboardingScreen();
             }
             return auth.isAuthenticated
@@ -68,6 +152,12 @@ class MyApp extends StatelessWidget {
                 : const LoginScreen();
           },
         ),
+        routes: {
+          '/login': (context) => const LoginScreen(),
+          '/main': (context) => const MainScreen(),
+          '/onboarding': (context) => const OnboardingScreen(),
+          '/performance-monitor': (context) => const PerformanceMonitorScreen(),
+        },
       ),
     );
   }

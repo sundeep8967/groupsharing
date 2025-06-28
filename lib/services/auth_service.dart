@@ -105,17 +105,32 @@ class AuthService {
   // Sign in with Google
   Future<UserCredential> signInWithGoogle() async {
     try {
+      print('[AUTH] Starting Google Sign-In process...');
+      
       // Trigger the authentication flow
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
+        print('[AUTH] User canceled Google Sign-In');
         throw FirebaseAuthException(
           code: 'sign_in_canceled',
           message: 'Sign in was canceled',
         );
       }
 
+      print('[AUTH] Google user obtained: ${googleUser.email}');
+
       // Obtain the auth details from the request
       final GoogleSignInAuthentication? googleAuth = await googleUser.authentication;
+      
+      if (googleAuth?.accessToken == null || googleAuth?.idToken == null) {
+        print('[AUTH] Failed to get Google authentication tokens');
+        throw FirebaseAuthException(
+          code: 'missing_auth_token',
+          message: 'Failed to get authentication tokens from Google',
+        );
+      }
+
+      print('[AUTH] Google authentication tokens obtained');
 
       // Create a new credential
       final credential = GoogleAuthProvider.credential(
@@ -123,17 +138,27 @@ class AuthService {
         idToken: googleAuth?.idToken,
       );
       
+      print('[AUTH] Signing in to Firebase with Google credential...');
+      
       // Sign in to Firebase with the Google credential
       UserCredential userCredential = await _auth.signInWithCredential(credential);
       
+      print('[AUTH] Firebase sign-in successful: ${userCredential.user?.email}');
+      
       // Save user data to Firestore and SharedPreferences
       if (userCredential.user != null) {
+        print('[AUTH] Saving user data...');
         await _saveUserData(userCredential.user!);
+        print('[AUTH] User data saved successfully');
       }
       
       return userCredential;
     } catch (e) {
-      print('Google sign in error: $e');
+      print('[AUTH] Google sign in error: $e');
+      if (e is FirebaseAuthException) {
+        print('[AUTH] Firebase error code: ${e.code}');
+        print('[AUTH] Firebase error message: ${e.message}');
+      }
       rethrow;
     }
   }
@@ -143,7 +168,7 @@ class AuthService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final firestore = FirebaseFirestore.instance;
-      final userDoc = await firestore.collection('users').doc('userid${user.uid}').get();
+      final userDoc = await firestore.collection('users').doc(user.uid).get();
       
       // Get FCM token
       final fcmToken = await FirebaseMessaging.instance.getToken();
@@ -171,7 +196,7 @@ class AuthService {
       }
       
       // Save to Firestore
-      await firestore.collection('users').doc('userid${user.uid}').set(userData, SetOptions(merge: true));
+      await firestore.collection('users').doc(user.uid).set(userData, SetOptions(merge: true));
       
       // Handle birthdays if they exist in the document
       if (userDoc.exists) {

@@ -37,6 +37,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Future<void> _refreshProfileData() async {
+    try {
+      final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+      final user = authProvider.user;
+      
+      if (user != null) {
+        // Reload Firebase Auth user data
+        await user.reload();
+        
+        // Clear cached images
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final photoUrl = userDoc.data()?['photoUrl'];
+        
+        if (photoUrl != null) {
+          await CachedNetworkImage.evictFromCache(photoUrl);
+        }
+        
+        if (user.photoURL != null) {
+          await CachedNetworkImage.evictFromCache(user.photoURL!);
+        }
+        
+        // Force rebuild
+        setState(() {});
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile data refreshed')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error refreshing profile: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -55,6 +90,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         elevation: 0,
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, size: 24),
+            onPressed: _refreshProfileData,
+            tooltip: 'Refresh Profile',
+          ),
           IconButton(
             icon: const Icon(Icons.exit_to_app, size: 24),
             onPressed: _isSigningOut ? null : () async {
@@ -148,14 +188,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         backgroundColor: colorScheme.surfaceVariant,
                         backgroundImage: _imageFile != null
                             ? FileImage(_imageFile!)
-                            : (photoUrl != null
-                                ? CachedNetworkImageProvider(photoUrl, cacheKey: 'profile_$userId')
+                            : (photoUrl != null && photoUrl.isNotEmpty
+                                ? CachedNetworkImageProvider(
+                                    photoUrl, 
+                                    cacheKey: 'profile_${userId}_${DateTime.now().millisecondsSinceEpoch ~/ 60000}' // Refresh cache every minute
+                                  )
                                 : null) as ImageProvider?,
                         child: _isLoading
                             ? const CircularProgressIndicator(strokeWidth: 2)
-                            : (_imageFile == null && photoUrl == null
+                            : (_imageFile == null && (photoUrl == null || photoUrl.isEmpty)
                                 ? Icon(Icons.person, size: 36, color: colorScheme.onSurfaceVariant)
                                 : null),
+                        onBackgroundImageError: (exception, stackTrace) {
+                          // Handle image loading errors
+                          debugPrint('Profile image loading error: $exception');
+                        },
                       ),
                       Positioned(
                         right: 0,
