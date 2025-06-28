@@ -8,6 +8,8 @@ import '../services/location_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../utils/performance_optimizer.dart';
+import '../services/notification_service.dart';
+import '../services/proximity_service.dart';
 
 /// Enhanced LocationProvider with REAL-TIME push notifications
 /// This version uses Firebase Realtime Database for instant synchronization
@@ -449,6 +451,9 @@ class LocationProvider with ChangeNotifier {
     // Initialize performance optimizer
     await _performanceOptimizer.initialize();
     
+    // Initialize notification service for proximity notifications
+    await NotificationService.initialize();
+    
     try {
       final prefs = await SharedPreferences.getInstance();
       final isLocationSharingEnabled = prefs.getBool('location_sharing_enabled') ?? false;
@@ -661,6 +666,9 @@ class LocationProvider with ChangeNotifier {
           
           _log('INSTANT UPDATE: ${_userLocations.length} users with locations, ${_userSharingStatus.length} users with status');
           
+          // Check proximity for friends (500m range notifications)
+          _checkProximityNotifications(userId);
+          
           // Use debounced notification for location updates
           _notifyListenersDebounced();
         }
@@ -778,6 +786,27 @@ class LocationProvider with ChangeNotifier {
     }, onError: (error) {
       _log('ERROR listening to realtime user status: $error');
     });
+  }
+
+  // Check proximity for friends and trigger notifications if within 500m range
+  Future<void> _checkProximityNotifications(String currentUserId) async {
+    try {
+      // Only check proximity if we have current location and are tracking
+      if (_currentLocation == null || !_isTracking) {
+        return;
+      }
+      
+      // Check proximity for all friends
+      await ProximityService.checkProximityForAllFriends(
+        userLocation: _currentLocation!,
+        friendLocations: _userLocations,
+        friendSharingStatus: _userSharingStatus,
+        currentUserId: currentUserId,
+      );
+      
+    } catch (e) {
+      _log('Error checking proximity notifications: $e');
+    }
   }
 
   // Mark user as uninstalled due to stale heartbeat
@@ -931,6 +960,9 @@ class LocationProvider with ChangeNotifier {
             
             await _getAddressFromCoordinates(location.latitude, location.longitude);
             
+            // Check proximity for friends when user location updates
+            _checkProximityNotifications(userId);
+            
             if (_mounted) notifyListeners();
           }
           
@@ -1023,6 +1055,9 @@ class LocationProvider with ChangeNotifier {
       
       // Stop heartbeat mechanism
       _stopHeartbeat();
+      
+      // Clear proximity tracking when stopping location sharing
+      ProximityService.clearProximityTracking();
       
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('location_sharing_enabled', false);
