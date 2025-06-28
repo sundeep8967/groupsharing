@@ -41,6 +41,10 @@ class LocationProvider with ChangeNotifier {
   VoidCallback? onLocationServiceDisabled;
   VoidCallback? onLocationServiceEnabled;
   
+  // Prevent race conditions with local state changes
+  DateTime? _lastLocalToggleTime;
+  static const Duration _localToggleProtectionWindow = Duration(seconds: 3);
+  
   // Location service state management
   bool _locationServiceEnabled = true;
   bool _wasTrackingBeforeServiceDisabled = false;
@@ -523,6 +527,16 @@ class LocationProvider with ChangeNotifier {
         
         // Only update if the realtime state is different from local state
         if (realtimeIsTracking != _isTracking) {
+          // Check if we're in the protection window after a local toggle
+          final now = DateTime.now();
+          final isInProtectionWindow = _lastLocalToggleTime != null && 
+              now.difference(_lastLocalToggleTime!) < _localToggleProtectionWindow;
+          
+          if (isInProtectionWindow) {
+            _log('PROTECTION: Ignoring remote state change during local toggle protection window');
+            return;
+          }
+          
           _log('INSTANT SYNC: Location sharing status changed to $realtimeIsTracking');
           _isTracking = realtimeIsTracking;
           
@@ -807,6 +821,10 @@ class LocationProvider with ChangeNotifier {
     // Store user ID for potential resumption
     _userIdForResumption = userId;
 
+    // Record local toggle time to prevent race conditions
+    _lastLocalToggleTime = DateTime.now();
+    _log('Recorded local toggle time for protection window');
+
     // Set tracking to true IMMEDIATELY for instant UI response
     _isTracking = true;
     _userSharingStatus[userId] = true; // Update sharing status immediately
@@ -967,6 +985,11 @@ class LocationProvider with ChangeNotifier {
   // Stop tracking location
   Future<void> stopTracking() async {
     _log('=== STOP TRACKING CALLED ===');
+    
+    // Record local toggle time to prevent race conditions
+    _lastLocalToggleTime = DateTime.now();
+    _log('Recorded local toggle time for protection window');
+    
     // Set tracking to false IMMEDIATELY for instant UI response
     _isTracking = false;
     _status = 'Location sharing stopped';
