@@ -292,13 +292,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         // Update markers only when nearby users change
         _updateMarkersIfNeeded(locationProvider);
 
-        // Use current location if available, otherwise use a default location or last known location
-        final currentLocation = locationProvider.currentLocation ?? 
-                               _lastMapCenter ?? 
-                               const LatLng(37.7749, -122.4194); // Default to San Francisco if no location
+        // AUTO-CENTER: Use current location as priority for initial map center
+        final currentLocation = locationProvider.currentLocation;
         
-        // Use last map center/zoom unless user requests recenter
-        final mapCenter = _lastMapCenter ?? currentLocation;
+        // Determine map center with priority: current location > last map center > default
+        final mapCenter = currentLocation ?? 
+                         _lastMapCenter ?? 
+                         const LatLng(37.7749, -122.4194); // Default to San Francisco if no location
+        
+        // Auto-center on user location when it becomes available for the first time
+        final shouldAutoCenter = currentLocation != null && _lastMapCenter == null;
 
         return Listener(
           onPointerUp: (_) {
@@ -310,11 +313,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               Positioned.fill(
                 child: RepaintBoundary(
                   child: SmoothModernMap(
-                    key: const ValueKey('smooth_modern_map'),
+                    key: ValueKey('smooth_modern_map_${currentLocation != null ? "with_location" : "no_location"}'),
                     initialPosition: mapCenter,
-                    userLocation: locationProvider.currentLocation, // Only show user location if we have it
+                    userLocation: currentLocation, // Always pass current location if available
+                    userPhotoUrl: authProvider.user?.photoURL, // Pass user's profile picture
+                    isLocationRealTime: locationProvider.isTracking, // Real-time if actively tracking
                     markers: _cachedMarkers,
-                    showUserLocation: locationProvider.currentLocation != null, // Only show if we have user location
+                    showUserLocation: true, // Always show user location marker when location is available
                     onMarkerTap: (marker) => _showMarkerDetails(context, marker),
                     onMapMoved: (center, zoom) {
                       setState(() {
@@ -348,7 +353,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ),
               
               // Location Info Overlay (only when visible and location is available)
-              if (_showLocationInfo && locationProvider.currentLocation != null)
+              if (_showLocationInfo && currentLocation != null)
                 Positioned(
                   top: MediaQuery.of(context).padding.top + 130,
                   left: 16,

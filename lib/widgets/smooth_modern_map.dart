@@ -34,6 +34,8 @@ class SmoothModernMap extends StatefulWidget {
   final Set<MapMarker> markers;
   final bool showUserLocation;
   final latlong.LatLng? userLocation;
+  final String? userPhotoUrl;
+  final bool isLocationRealTime;
   final void Function(MapMarker)? onMarkerTap;
   final void Function(latlong.LatLng center, double zoom)? onMapMoved;
 
@@ -43,6 +45,8 @@ class SmoothModernMap extends StatefulWidget {
     this.markers = const {},
     this.showUserLocation = true,
     this.userLocation,
+    this.userPhotoUrl,
+    this.isLocationRealTime = false,
     this.onMarkerTap,
     this.onMapMoved,
   });
@@ -129,6 +133,20 @@ class _SmoothModernMapState extends State<SmoothModernMap>
     // Only update markers if they actually changed - PERFORMANCE OPTIMIZATION
     if (widget.markers != oldWidget.markers) {
       _scheduleMarkerUpdate();
+    }
+    
+    // AUTO-CENTER: When user location becomes available for the first time, center the map
+    if (widget.userLocation != null && 
+        oldWidget.userLocation == null && 
+        !_isZooming) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.userLocation != null) {
+          _animatedMapController.animateTo(
+            dest: widget.userLocation!,
+            zoom: 16.0,
+          );
+        }
+      });
     }
   }
 
@@ -230,15 +248,17 @@ class _SmoothModernMapState extends State<SmoothModernMap>
 
     final markers = <Marker>[];
     
-    // Add user location marker with your original beautiful design
+    // Add user location marker with your original beautiful design - ALWAYS PRIORITIZE USER LOCATION
     if (widget.showUserLocation && widget.userLocation != null) {
-      markers.add(
+      markers.insert(0, // Insert at beginning to ensure it's always visible
         Marker(
           point: widget.userLocation!,
           width: 60,
           height: 60,
           child: _UserLocationMarker(
             heading: _heading,
+            photoUrl: widget.userPhotoUrl,
+            isRealTime: widget.isLocationRealTime,
           ),
         ),
       );
@@ -422,8 +442,9 @@ class _SmoothModernMapState extends State<SmoothModernMap>
                   ),
                   
                   onMapReady: () {
+                    // AUTO-CENTER: Immediately center on user location when map is ready
                     if (widget.userLocation != null) {
-                      _mapController.move(widget.userLocation!, 15);
+                      _mapController.move(widget.userLocation!, 16.0);
                     }
                   },
                   
@@ -519,10 +540,13 @@ class _SmoothModernMapState extends State<SmoothModernMap>
                 child: FloatingActionButton(
                   heroTag: 'location',
                   mini: true,
-                  backgroundColor: Colors.white,
+                  backgroundColor: widget.userLocation != null ? Colors.blue : Colors.white,
                   elevation: 2,
                   onPressed: _goToUserLocation,
-                  child: const Icon(Icons.my_location, color: Colors.black87),
+                  child: Icon(
+                    Icons.my_location, 
+                    color: widget.userLocation != null ? Colors.white : Colors.black87,
+                  ),
                 ),
               ),
             ),
@@ -677,46 +701,180 @@ class _CircleIconButton extends StatelessWidget {
   }
 }
 
-// Keep your original beautiful user location marker
-class _UserLocationMarker extends StatelessWidget {
+// Enhanced user location marker with profile picture and real-time status indication
+class _UserLocationMarker extends StatefulWidget {
   final double? heading;
+  final String? photoUrl;
+  final bool isRealTime;
 
   const _UserLocationMarker({
     this.heading,
+    this.photoUrl,
+    this.isRealTime = false,
   });
 
   @override
+  State<_UserLocationMarker> createState() => _UserLocationMarkerState();
+}
+
+class _UserLocationMarkerState extends State<_UserLocationMarker>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  late Animation<double> _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    );
+    _pulseAnimation = Tween<double>(
+      begin: 0.8,
+      end: 1.2,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    ));
+    
+    // Only animate if location is real-time
+    if (widget.isRealTime) {
+      _animationController.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(_UserLocationMarker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Start/stop animation based on real-time status
+    if (widget.isRealTime && !oldWidget.isRealTime) {
+      _animationController.repeat(reverse: true);
+    } else if (!widget.isRealTime && oldWidget.isRealTime) {
+      _animationController.stop();
+      _animationController.reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.blue,
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: Colors.white,
-          width: 4,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: heading != null
-          ? Transform.rotate(
-              angle: heading! * pi / 180,
-              child: const Icon(
-                Icons.navigation,
-                color: Colors.white,
-                size: 24,
+    return AnimatedBuilder(
+      animation: _pulseAnimation,
+      builder: (context, child) {
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            // Outer pulsing circle - only visible for real-time location
+            if (widget.isRealTime)
+              Transform.scale(
+                scale: _pulseAnimation.value,
+                child: Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.3),
+                    shape: BoxShape.circle,
+                  ),
+                ),
               ),
-            )
-          : const Icon(
-              Icons.person,
-              color: Colors.white,
-              size: 24,
+            
+            // Main profile picture container
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: widget.isRealTime ? Colors.blue : Colors.grey[400],
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.white,
+                  width: 3,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: ClipOval(
+                child: widget.photoUrl != null && widget.photoUrl!.isNotEmpty
+                    ? Image.network(
+                        widget.photoUrl!,
+                        width: 44,
+                        height: 44,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return _buildFallbackAvatar();
+                        },
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return _buildFallbackAvatar();
+                        },
+                      )
+                    : _buildFallbackAvatar(),
+              ),
             ),
+            
+            // Status indicator dot
+            Positioned(
+              bottom: 2,
+              right: 2,
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: widget.isRealTime ? Colors.green : Colors.orange,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white,
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+                child: widget.isRealTime
+                    ? const Icon(
+                        Icons.circle,
+                        color: Colors.green,
+                        size: 8,
+                      )
+                    : const Icon(
+                        Icons.access_time,
+                        color: Colors.white,
+                        size: 8,
+                      ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildFallbackAvatar() {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: widget.isRealTime ? Colors.blue : Colors.grey[400],
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        Icons.person,
+        color: Colors.white,
+        size: 24,
+      ),
     );
   }
 }
