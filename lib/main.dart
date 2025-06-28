@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,6 +17,16 @@ import 'screens/performance_monitor_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Configure system UI overlay style for better status bar visibility
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent, // Transparent status bar
+    statusBarIconBrightness: Brightness.dark, // Dark icons for light backgrounds
+    statusBarBrightness: Brightness.light, // Light status bar for iOS
+    systemNavigationBarColor: Colors.white, // Navigation bar color
+    systemNavigationBarIconBrightness: Brightness.dark, // Dark navigation icons
+  ));
+  
   try {
     await FMTCObjectBoxBackend().initialise();
   } catch (error) {
@@ -123,6 +134,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
           useMaterial3: true,
+          appBarTheme: const AppBarTheme(
+            systemOverlayStyle: SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness: Brightness.dark,
+              statusBarBrightness: Brightness.light,
+            ),
+          ),
         ),
         home: Consumer<AuthProvider>(
           builder: (context, auth, _) {

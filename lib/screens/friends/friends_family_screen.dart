@@ -416,60 +416,80 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
           width: 1,
         ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Icon and text section with flexible sizing
-          Flexible(
-            child: Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    isOn ? Icons.location_on : Icons.location_off,
-                    size: 12,
-                    color: isOn ? Colors.green : Colors.grey[600],
-                  ),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      isOn ? 'ON' : 'OFF',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: isOn ? Colors.green : Colors.grey[600],
-                      ),
-                      overflow: TextOverflow.ellipsis,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Icon with fixed size - subtle animation when toggling
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _isToggling 
+                  ? Icon(
+                      Icons.sync,
+                      key: const ValueKey('loading'),
+                      size: 12,
+                      color: isOn ? Colors.green : Colors.blue,
+                    )
+                  : Icon(
+                      isOn ? Icons.location_on : Icons.location_off,
+                      key: ValueKey(isOn ? 'on' : 'off'),
+                      size: 12,
+                      color: isOn ? Colors.green : Colors.grey[600],
                     ),
+            ),
+            const SizedBox(width: 4),
+            // Text with flexible sizing but constrained
+            Flexible(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: Text(
+                  _isToggling ? '...' : (isOn ? 'ON' : 'OFF'),
+                  key: ValueKey(_isToggling ? 'loading' : (isOn ? 'on' : 'off')),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: _isToggling 
+                        ? (isOn ? Colors.green : Colors.blue)
+                        : (isOn ? Colors.green : Colors.grey[600]),
                   ),
-                ],
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ),
-          ),
-          // Switch with fixed size
-          SizedBox(
-            width: 40,
-            child: Transform.scale(
-              scale: 0.6,
-              child: Switch(
-                value: isOn,
-                onChanged: (value) => _handleToggle(value, locationProvider, user),
-                activeColor: Colors.green,
-                activeTrackColor: Colors.green.withOpacity(0.3),
-                inactiveThumbColor: Colors.grey[400],
-                inactiveTrackColor: Colors.grey[300],
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            const SizedBox(width: 4),
+            // Switch with fixed size
+            SizedBox(
+              width: 32,
+              child: Transform.scale(
+                scale: 0.6,
+                child: Switch(
+                  value: isOn,
+                  onChanged: (value) => _handleToggle(value, locationProvider, user), // Keep interactive
+                  activeColor: Colors.green,
+                  activeTrackColor: Colors.green.withOpacity(0.3),
+                  inactiveThumbColor: Colors.grey[400],
+                  inactiveTrackColor: Colors.grey[300],
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
+  bool _isToggling = false; // Add state to prevent multiple toggles
+  
   void _handleToggle(bool value, LocationProvider locationProvider, firebase_auth.User user) async {
     print('Toggle pressed: $value, current tracking: ${locationProvider.isTracking}');
+    
+    // Prevent multiple simultaneous toggles
+    if (_isToggling) {
+      print('Toggle already in progress, ignoring');
+      return;
+    }
     
     // Prevent double-toggling
     if (value == locationProvider.isTracking) {
@@ -477,18 +497,37 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
       return;
     }
     
+    // Show immediate feedback with optimistic UI update
+    _isToggling = true;
+    if (mounted) setState(() {});
+    
+    // Show immediate feedback notification for better UX
+    if (value) {
+      _showSnackBar('Enabling location sharing...', Colors.blue, Icons.location_searching);
+    } else {
+      _showSnackBar('Disabling location sharing...', Colors.orange, Icons.location_off);
+    }
+    
     try {
       if (value) {
         print('Starting location tracking for user: ${user.uid}');
         await locationProvider.startTracking(user.uid);
+        
+        // Quick verification with shorter delay for better UX
+        await Future.delayed(const Duration(milliseconds: 200));
+        
         if (mounted) {
-          _showSnackBar('Location sharing turned ON - Friends can see your location', Colors.green, Icons.check_circle);
+          _showSnackBar('Location ON', Colors.green, Icons.check_circle);
         }
       } else {
         print('Stopping location tracking');
         await locationProvider.stopTracking();
+        
+        // Quick verification with shorter delay for better UX
+        await Future.delayed(const Duration(milliseconds: 200));
+        
         if (mounted) {
-          _showSnackBar('Location sharing turned OFF - You appear offline to friends', Colors.orange, Icons.location_off);
+          _showSnackBar('Location OFF', Colors.grey, Icons.location_off);
         }
       }
     } catch (e) {
@@ -496,21 +535,40 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
       if (mounted) {
         _showSnackBar('Error: ${e.toString()}', Colors.red, Icons.error);
       }
+    } finally {
+      _isToggling = false;
+      if (mounted) setState(() {});
     }
   }
 
   void _showSnackBar(String message, Color color, IconData icon) {
     if (!mounted) return;
+    
+    // Determine text color based on background brightness
+    final brightness = ThemeData.estimateBrightnessForColor(color);
+    final textColor = brightness == Brightness.dark ? Colors.white : Colors.black87;
+    final iconColor = brightness == Brightness.dark ? Colors.white : Colors.black87;
+    
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
-            Icon(icon, color: Colors.white, size: 20),
+            Icon(icon, color: iconColor, size: 20),
             const SizedBox(width: 8),
-            Text(message),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: textColor,
+                  fontWeight: FontWeight.w500,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2, // Allow up to 2 lines for longer messages
+              ),
+            ),
           ],
         ),
-        duration: const Duration(seconds: 2),
+        duration: const Duration(seconds: 2), // Quick feedback duration
         backgroundColor: color,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -1033,21 +1091,46 @@ class _CompactFriendAddressSectionState extends State<_CompactFriendAddressSecti
     _loadAddress();
   }
 
+  @override
+  void didUpdateWidget(_CompactFriendAddressSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Reload address if friend data changed
+    if (oldWidget.friend.id != widget.friend.id || 
+        oldWidget.friend.lastLocation != widget.friend.lastLocation) {
+      _loadAddress();
+    }
+  }
+
   void _loadAddress() async {
     final state = context.findAncestorStateOfType<_FriendsFamilyScreenState>();
     final friend = widget.friend;
-    if (friend.lastLocation == null) return;
+    
+    // Check both current location and last known location from LocationProvider
+    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+    final currentLocation = locationProvider.userLocations[friend.id];
+    final lastKnownLocation = friend.lastLocation;
+    
+    // Use current location if available, otherwise use last known location
+    final locationToUse = currentLocation ?? lastKnownLocation;
+    
+    if (locationToUse == null) return;
+    
     final cache = state?._addressCache;
-    final cacheKey = friend.id;
+    final cacheKey = '${friend.id}_${locationToUse.latitude}_${locationToUse.longitude}';
+    
     if (cache != null && cache.containsKey(cacheKey)) {
       setState(() {
         _address = cache[cacheKey];
       });
       return;
     }
+    
     setState(() => _loading = true);
-    final addr = await Provider.of<LocationProvider>(context, listen: false)
-        .getAddressForCoordinates(friend.lastLocation!.latitude, friend.lastLocation!.longitude);
+    final addr = await locationProvider.getAddressForCoordinates(
+      locationToUse.latitude, 
+      locationToUse.longitude
+    );
+    
     if (mounted) {
       setState(() {
         _address = addr;
@@ -1060,7 +1143,16 @@ class _CompactFriendAddressSectionState extends State<_CompactFriendAddressSecti
   @override
   Widget build(BuildContext context) {
     final friend = widget.friend;
-    if (friend.lastLocation == null) {
+    
+    // Check both current location and last known location from LocationProvider
+    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+    final currentLocation = locationProvider.userLocations[friend.id];
+    final lastKnownLocation = friend.lastLocation;
+    
+    // Use current location if available, otherwise use last known location
+    final locationToUse = currentLocation ?? lastKnownLocation;
+    
+    if (locationToUse == null) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
@@ -1073,7 +1165,7 @@ class _CompactFriendAddressSectionState extends State<_CompactFriendAddressSecti
             const SizedBox(width: 4),
             const Expanded(
               child: Text(
-                'No location available',
+                'No location data available',
                 style: TextStyle(fontSize: 11, color: Colors.grey),
                 overflow: TextOverflow.visible,
               ),
