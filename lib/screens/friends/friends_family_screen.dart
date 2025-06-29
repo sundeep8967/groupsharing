@@ -10,6 +10,7 @@ import '../../models/friendship_model.dart';
 import '../../providers/location_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'friend_details_screen.dart';
+import '../../services/presence_service.dart';
 
 class FriendsFamilyScreen extends StatefulWidget {
   const FriendsFamilyScreen({super.key});
@@ -713,22 +714,38 @@ class _FriendListItem extends StatelessWidget {
                       
                       const SizedBox(height: 6),
                       
-                      // Status Row
+                      // Status Row with enhanced offline info
                       Row(
                         children: [
                           // Location sharing status
                           _CompactLocationStatusIndicator(friend: friend),
                           const SizedBox(width: 8),
-                          // Last seen
+                          // Last seen with timestamp
                           Expanded(
-                            child: Text(
-                              _getLastSeenText(friend),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey[600],
-                                fontWeight: FontWeight.w500,
-                              ),
-                              overflow: TextOverflow.ellipsis,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _getLastSeenText(friend, context),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                // Show additional timestamp for offline friends
+                                if (!_isOnline(friend) && friend.lastSeen != null)
+                                  Text(
+                                    _getDetailedTimestamp(friend.lastSeen!),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey[500],
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                              ],
                             ),
                           ),
                         ],
@@ -750,26 +767,92 @@ class _FriendListItem extends StatelessWidget {
   }
 
   bool _isOnline(UserModel friend) {
-    if (friend.lastSeen == null) return false;
-    return DateTime.now().difference(friend.lastSeen!).inMinutes < 5;
+    // Use the new presence service to determine online status based on location sharing
+    final userData = {
+      'locationSharingEnabled': friend.locationSharingEnabled,
+      'lastLocationUpdate': friend.lastSeen?.millisecondsSinceEpoch,
+      'lastSeen': friend.lastSeen?.millisecondsSinceEpoch,
+    };
+    return PresenceService.isUserOnline(userData);
   }
 
-  String _getLastSeenText(UserModel friend) {
-    if (friend.lastSeen == null) return 'Never seen';
+  String _getLastSeenText(UserModel friend, BuildContext context) {
+    // Use the new presence service to format last seen text based on location sharing
+    // Check LocationProvider for more recent location update data
+    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+    final userLocationData = locationProvider.userLocations[friend.id];
     
+    // Use the most recent timestamp available
+    int? lastLocationUpdate;
+    if (userLocationData != null) {
+      // Use current location timestamp if available
+      lastLocationUpdate = DateTime.now().millisecondsSinceEpoch;
+    } else if (friend.lastSeen != null) {
+      // Fall back to friend's last seen
+      lastLocationUpdate = friend.lastSeen!.millisecondsSinceEpoch;
+    }
+    
+    final userData = {
+      'locationSharingEnabled': friend.locationSharingEnabled,
+      'lastLocationUpdate': lastLocationUpdate,
+      'lastSeen': friend.lastSeen?.millisecondsSinceEpoch,
+    };
+    
+    final presenceText = PresenceService.getLastSeenText(userData);
+    
+    // If friend is offline and we have a last seen time, show more detailed info
+    if (!PresenceService.isUserOnline(userData) && friend.lastSeen != null) {
+      final lastSeenTime = friend.lastSeen!;
+      final now = DateTime.now();
+      final difference = now.difference(lastSeenTime);
+      
+      if (difference.inMinutes < 60) {
+        return 'Last seen ${difference.inMinutes}m ago';
+      } else if (difference.inHours < 24) {
+        return 'Last seen ${difference.inHours}h ago';
+      } else if (difference.inDays < 7) {
+        return 'Last seen ${difference.inDays}d ago';
+      } else {
+        return 'Last seen ${lastSeenTime.day}/${lastSeenTime.month}';
+      }
+    }
+    
+    return presenceText;
+  }
+
+  String _getDetailedTimestamp(DateTime lastSeen) {
     final now = DateTime.now();
-    final difference = now.difference(friend.lastSeen!);
+    final difference = now.difference(lastSeen);
     
-    if (difference.inMinutes < 1) {
-      return 'Just now';
-    } else if (difference.inMinutes < 60) {
-      return '${difference.inMinutes}m ago';
-    } else if (difference.inHours < 24) {
-      return '${difference.inHours}h ago';
+    if (difference.inDays == 0) {
+      // Today - show time
+      final hour = lastSeen.hour;
+      final minute = lastSeen.minute.toString().padLeft(2, '0');
+      final period = hour >= 12 ? 'PM' : 'AM';
+      final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+      return 'Today at $displayHour:$minute $period';
+    } else if (difference.inDays == 1) {
+      // Yesterday - show time
+      final hour = lastSeen.hour;
+      final minute = lastSeen.minute.toString().padLeft(2, '0');
+      final period = hour >= 12 ? 'PM' : 'AM';
+      final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+      return 'Yesterday at $displayHour:$minute $period';
     } else if (difference.inDays < 7) {
-      return '${difference.inDays}d ago';
+      // This week - show day and time
+      final weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      final weekday = weekdays[lastSeen.weekday - 1];
+      final hour = lastSeen.hour;
+      final minute = lastSeen.minute.toString().padLeft(2, '0');
+      final period = hour >= 12 ? 'PM' : 'AM';
+      final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+      return '$weekday at $displayHour:$minute $period';
     } else {
-      return 'Long time ago';
+      // Older - show date
+      final day = lastSeen.day.toString().padLeft(2, '0');
+      final month = lastSeen.month.toString().padLeft(2, '0');
+      final year = lastSeen.year;
+      return '$day/$month/$year';
     }
   }
 }
@@ -1163,10 +1246,12 @@ class _CompactFriendAddressSectionState extends State<_CompactFriendAddressSecti
           children: [
             Icon(Icons.location_off, size: 12, color: Colors.grey[600]),
             const SizedBox(width: 4),
-            const Expanded(
+            Expanded(
               child: Text(
-                'No location data available',
-                style: TextStyle(fontSize: 11, color: Colors.grey),
+                friend.locationSharingEnabled 
+                    ? 'Location not available yet' 
+                    : 'Location sharing disabled',
+                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                 overflow: TextOverflow.visible,
               ),
             ),
@@ -1240,28 +1325,56 @@ class _CompactFriendAddressSectionState extends State<_CompactFriendAddressSecti
     
     final fullAddress = addressParts.join(', ');
     
+    // Determine if this is current or last known location
+    final isCurrentLocation = currentLocation != null;
+    final isOnline = Provider.of<LocationProvider>(context, listen: false).isUserSharingLocation(friend.id);
+    
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.green.withOpacity(0.1),
+        color: isCurrentLocation && isOnline 
+            ? Colors.green.withOpacity(0.1)
+            : Colors.orange.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.location_on, size: 12, color: Colors.green[600]),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(
-              fullAddress.isNotEmpty ? fullAddress : 'Address available',
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.green[700],
-                fontWeight: FontWeight.w500,
+          Row(
+            children: [
+              Icon(
+                isCurrentLocation && isOnline ? Icons.location_on : Icons.location_history,
+                size: 12, 
+                color: isCurrentLocation && isOnline ? Colors.green[600] : Colors.orange[600]
               ),
-              overflow: TextOverflow.visible, // Always show complete address
-              maxLines: null, // Allow multiple lines if needed
-            ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  fullAddress.isNotEmpty ? fullAddress : 'Address available',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isCurrentLocation && isOnline ? Colors.green[700] : Colors.orange[700],
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.visible, // Always show complete address
+                  maxLines: null, // Allow multiple lines if needed
+                ),
+              ),
+            ],
           ),
+          // Show "last known" indicator for offline friends
+          if (!isCurrentLocation || !isOnline)
+            Padding(
+              padding: const EdgeInsets.only(left: 16, top: 2),
+              child: Text(
+                isCurrentLocation ? 'Current location' : 'Last known location',
+                style: TextStyle(
+                  fontSize: 9,
+                  color: Colors.grey[600],
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
         ],
       ),
     );

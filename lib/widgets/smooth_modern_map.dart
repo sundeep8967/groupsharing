@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_animations/flutter_map_animations.dart';
-import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart' as fmtc;
 import 'package:latlong2/latlong.dart' as latlong;
 import 'package:sensors_plus/sensors_plus.dart';
 
@@ -124,7 +123,7 @@ class _SmoothModernMapState extends State<SmoothModernMap>
     _cachedMarkers = [];
     _startMagnetometer();
     WidgetsBinding.instance.addObserver(this);
-    fmtc.FMTCStore('mainCache').manage.create();
+    // Removed tile caching initialization
   }
 
   @override
@@ -485,7 +484,7 @@ class _SmoothModernMapState extends State<SmoothModernMap>
                     maxZoom: 19,
                     minZoom: 2,
                     retinaMode: false,
-                    tileProvider: fmtc.FMTCStore('mainCache').getTileProvider(),
+                    // Removed tile caching provider
                     errorTileCallback: (TileImage tile, Object error, StackTrace? stackTrace) {
                       // Silent error handling
                     },

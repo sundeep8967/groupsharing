@@ -15,8 +15,9 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     
-    <!-- Optional permissions for additional features -->
+    <!-- Critical permissions for background location -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -24,10 +25,46 @@
     <!-- Android 14 (API 34) requires this for location foreground services -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     
+    <!-- Additional permissions for persistent background location -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    
+    <!-- Critical permissions for persistent location like Life360 -->
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    
+    <!-- Battery optimization and power management -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.DEVICE_POWER" />
+    
+    <!-- Auto-start permissions for different manufacturers -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.QUICKBOOT_POWERON" />
+    <uses-permission android:name="com.miui.powerkeeper.permission.BACKGROUND_APP_PERMISSION" />
+    <uses-permission android:name="oppo.permission.OPPO_COMPONENT_SAFE" />
+    <uses-permission android:name="com.huawei.permission.external_app_settings.USE_COMPONENT" />
+    
+    <!-- Permissions for native services -->
+    <!-- Emergency service permissions -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.CALL_PRIVILEGED" />
+    
+    <!-- Sensor permissions for driving detection -->
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+    
+    <!-- Audio permissions for emergency alerts -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    
     <application
         android:name="${applicationName}"
-        android:label="groupsharing"
-        android:icon="@mipmap/ic_launcher"
+        android:label="GroupSharing"
+        android:icon="@mipmap/launcher_icon"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
         
@@ -78,15 +115,49 @@
             android:name=".BackgroundLocationService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="location" />
+            android:foregroundServiceType="location"
+            android:stopWithTask="false"
+            android:process=":location_service" />
+        
+        <!-- Native Driving Detection Service -->
+        <service
+            android:name=".DrivingDetectionService"
+            android:enabled="true"
+            android:exported="false" />
+        
+        <!-- Native Emergency Service -->
+        <service
+            android:name=".EmergencyService"
+            android:enabled="true"
+            android:exported="false" />
+        
+        <!-- Native Geofence Service -->
+        <service
+            android:name=".GeofenceService"
+            android:enabled="true"
+            android:exported="false" />
+        
+        <!-- Geofence Transition Receiver -->
+        <receiver
+            android:name=".GeofenceTransitionReceiver"
+            android:enabled="true"
+            android:exported="false" />
         
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
-            android:exported="true">
-            <intent-filter>
+            android:exported="true"
+            android:directBootAware="true">
+            <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.REBOOT" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.miui.powerkeeper.configure_app_background" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="package" />
             </intent-filter>
         </receiver>
         <!-- Required for background_locator_2 background service -->

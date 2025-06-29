@@ -75,6 +75,43 @@ class NotificationService {
     // TODO: Navigate to friend details or map when notification is tapped
   }
   
+  /// Show a general notification
+  static Future<void> showNotification({
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    if (!_isInitialized) {
+      _log('Notification service not initialized');
+      return;
+    }
+
+    try {
+      const notificationDetails = NotificationDetails(
+        android: AndroidNotificationDetails(
+          'general_channel',
+          'General Notifications',
+          channelDescription: 'General app notifications',
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+        ),
+        iOS: DarwinNotificationDetails(),
+      );
+
+      await _notifications.show(
+        DateTime.now().millisecondsSinceEpoch.remainder(100000),
+        title,
+        body,
+        notificationDetails,
+        payload: payload,
+      );
+
+      _log('General notification shown: $title');
+    } catch (e) {
+      _log('Error showing general notification: $e');
+    }
+  }
+  
   /// Show a proximity notification when a friend is nearby
   static Future<void> showProximityNotification({
     required String friendId,
@@ -120,7 +157,7 @@ class NotificationService {
       // Show the notification
       await _notifications.show(
         friendId.hashCode, // Use friend ID hash as notification ID
-        '👋 Friend Nearby!',
+        'Friend Nearby!',
         '$friendName is $distanceText away from you',
         notificationDetails,
         payload: friendId,
@@ -206,8 +243,8 @@ class NotificationService {
         return await androidImplementation?.areNotificationsEnabled() ?? false;
       } else if (defaultTargetPlatform == TargetPlatform.iOS) {
         final iosImplementation = _notifications.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
-        final settings = await iosImplementation?.getNotificationSettings();
-        return settings?.authorizationStatus == AuthorizationStatus.authorized;
+        final settings = await iosImplementation?.checkPermissions();
+        return settings?.isEnabled ?? false;
       }
       return false;
     } catch (e) {
@@ -241,5 +278,11 @@ class NotificationService {
   static void clearCooldowns() {
     _lastNotificationTime.clear();
     developer.log('Notification cooldowns cleared');
+  }
+
+  static void _log(String message) {
+    if (kDebugMode) {
+      developer.log('NOTIFICATION_SERVICE: $message');
+    }
   }
 }

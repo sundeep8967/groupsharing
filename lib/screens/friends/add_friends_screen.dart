@@ -72,7 +72,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
         final nameQuery = await db
             .collection('users')
             .where('name', isGreaterThanOrEqualTo: query)
-            .where('name', isLessThanOrEqualTo: query + '\uf8ff')
+            .where('name', isLessThanOrEqualTo: '$query\uf8ff')
             .limit(10)
             .get();
             
@@ -80,7 +80,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
         final emailQuery = await db
             .collection('users')
             .where('email', isGreaterThanOrEqualTo: query)
-            .where('email', isLessThanOrEqualTo: query + '\uf8ff')
+            .where('email', isLessThanOrEqualTo: '$query\uf8ff')
             .limit(10)
             .get();
 
@@ -147,10 +147,10 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
       // This regex might need adjustment based on actual friend code format.
       // The one used in the original code was: RegExp(r'^[A-Z0-9]{6}$')
       if (RegExp(r'^[A-Z0-9]{6}$').hasMatch(targetEmailOrCode.toUpperCase())) {
-        print('[UI] Searching by friend code: $targetEmailOrCode');
+        debugPrint('[UI] Searching by friend code: $targetEmailOrCode');
         targetUser = await _friendService.findUserByFriendCode(targetEmailOrCode.toUpperCase());
       } else if (targetEmailOrCode.contains('@')) { // Simple check for email
-        print('[UI] Searching by email: $targetEmailOrCode');
+        debugPrint('[UI] Searching by email: $targetEmailOrCode');
         targetUser = await _friendService.findUserByEmail(targetEmailOrCode);
       } else {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -160,17 +160,21 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
       }
 
       if (targetUser == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('User not found.')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('User not found.')),
+          );
+        }
         return;
       }
 
       // Optional: Client-side check for adding self, though service also checks
       if (targetUser.id == currentUser.uid) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('You cannot add yourself.')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('You cannot add yourself.')),
+          );
+        }
         return;
       }
 
@@ -181,15 +185,19 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
       // For now, let's rely on FriendService's check.
 
       await _friendService.sendFriendRequest(currentUser.uid, targetUser.id);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Friend request sent!')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Friend request sent!')),
+        );
+      }
 
     } catch (e) {
       // Catch exceptions from FriendService (e.g., "already exists", "failed to send")
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}')),
+        );
+      }
     } finally {
       setState(() {
         // Potentially clear loading state
@@ -268,7 +276,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
           String displayEmail = 'Loading...';
 
           if (userSnapshot.connectionState == ConnectionState.done) {
-            if (userSnapshot.hasData && userSnapshot.data != null) {
+            if (userSnapshot.hasData) {
               final UserModel? user = userSnapshot.data;
               displayName = user?.displayName ?? 'Unknown User';
               displayInitials = displayName.isNotEmpty ? displayName.substring(0, 1).toUpperCase() : '?';
@@ -282,28 +290,31 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
             displayName = 'Error';
             displayInitials = '!';
             displayEmail = 'Error loading data';
+          } else {
+            // Loading state
+            displayName = 'Loading...';
+            displayInitials = '?';
+            displayEmail = 'Loading...';
           }
 
           // Calculate time ago - assuming friendship.createdAt is a Timestamp
           String timeAgo = '';
-          if (friendship.timestamp != null) {
-            final duration = DateTime.now().difference(friendship.timestamp);
-            if (duration.inDays > 0) {
-              timeAgo = '${duration.inDays}d ago';
-            } else if (duration.inHours > 0) {
-              timeAgo = '${duration.inHours}h ago';
-            } else if (duration.inMinutes > 0) {
-              timeAgo = '${duration.inMinutes}m ago';
-            } else {
-              timeAgo = 'Just now';
-            }
+          final duration = DateTime.now().difference(friendship.timestamp);
+          if (duration.inDays > 0) {
+            timeAgo = '${duration.inDays}d ago';
+          } else if (duration.inHours > 0) {
+            timeAgo = '${duration.inHours}h ago';
+          } else if (duration.inMinutes > 0) {
+            timeAgo = '${duration.inMinutes}m ago';
+          } else {
+            timeAgo = 'Just now';
           }
 
 
           return ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             leading: CircleAvatar(
-              backgroundColor: Theme.of(context).primaryColor.withOpacity(0.2),
+              backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.2),
               child: Text(
                 displayInitials,
                 style: TextStyle(
@@ -369,7 +380,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
             Icon(
               Icons.group_off_outlined,
               size: 64,
-              color: Theme.of(context).hintColor.withOpacity(0.5),
+              color: Theme.of(context).hintColor.withValues(alpha: 0.5),
             ),
             const SizedBox(height: 16),
             Text(
@@ -438,7 +449,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
               final user = _searchResults[index];
               return ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: Theme.of(context).primaryColor.withOpacity(0.2),
+                  backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.2),
                   child: Text(
                     (user['name']?.toString().isNotEmpty ?? false) 
                         ? user['name'].toString().substring(0, 1).toUpperCase() 
@@ -480,7 +491,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        backgroundColor: colorScheme.background,
+        backgroundColor: colorScheme.surface,
         appBar: AppBar(
           backgroundColor: colorScheme.surface,
           elevation: 0,
