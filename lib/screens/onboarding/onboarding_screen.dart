@@ -101,7 +101,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 controller: _pageController,
                 count: _pages.length,
                 effect: WormEffect(
-                  dotColor: theme.colorScheme.onSurface.withOpacity(0.2),
+                  dotColor: theme.colorScheme.onSurface.withValues(alpha: 0.2),
                   activeDotColor: theme.primaryColor,
                   dotHeight: 8,
                   dotWidth: 8,
@@ -160,20 +160,40 @@ class OnboardingPage extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Image placeholder - replace with actual asset
+          // Display actual image asset or app logo for first page
           Container(
             width: 300,
             height: 300,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
               borderRadius: BorderRadius.circular(24),
             ),
-            child: Center(
-              child: Icon(
-                Icons.location_on,
-                size: 120,
-                color: Theme.of(context).colorScheme.primary,
-              ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: imageAsset == 'assets/images/onboarding3.png' 
+                ? Image.asset(
+                    'assets/images/applogo.png', // Use app logo for the last page
+                    fit: BoxFit.contain,
+                  )
+                : Image.asset(
+                    imageAsset,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      // Fallback to icon if image fails to load
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: Center(
+                          child: Icon(
+                            Icons.location_on,
+                            size: 120,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
             ),
           ),
           const SizedBox(height: 48),

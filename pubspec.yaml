@@ -30,7 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  firebase_database: ^10.4.0
+  firebase_database: ^11.1.4
 
   # Core Flutter packages
   cupertino_icons: ^1.0.2
@@ -48,7 +48,6 @@ dependencies:
   flutter_map: ^6.1.0
   flutter_map_cancellable_tile_provider: ^2.0.0
   flutter_map_animations: ^0.6.0
-  flutter_map_tile_caching: ^9.0.1
   
   # Device sensors
   sensors_plus: ^4.0.2
@@ -61,16 +60,16 @@ dependencies:
   geocoding: ^2.1.1
   
   # Firebase packages for backend and real-time updates
-  firebase_core: ^2.32.0
-  firebase_auth: ^4.15.3
-  cloud_firestore: ^4.17.5
-  firebase_storage: ^11.6.0
+  firebase_core: ^3.14.0
+  firebase_auth: ^5.6.0
+  cloud_firestore: ^5.6.0
+  firebase_storage: ^12.4.7
   connectivity_plus: ^5.0.2
   geofence_service: ^6.0.0+1
   app_links: ^6.2.0
   google_sign_in: ^6.1.6
-  firebase_messaging: ^14.7.10
-  google_sign_in_web: ^0.12.1
+  firebase_messaging: ^15.2.7
+  cloud_functions: ^5.2.7
 
   # Device ringer mode (Android only)
   
@@ -79,6 +78,10 @@ dependencies:
   
   # Notifications
   flutter_local_notifications: ^17.0.0
+  
+  # Permissions
+  permission_handler: ^11.3.1
+  app_settings: ^5.1.1
   
   # Utility packages
   uuid: ^4.2.2
@@ -99,6 +102,7 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   mockito: ^5.4.4 # Added mockito for mocking classes
   build_runner: ^2.4.8 # Added build_runner for code generation
+  flutter_launcher_icons: ^0.13.1 # For generating launcher icons
 
 dependency_overrides:
   # Remove problematic overrides to let Flutter resolve compatible versions
@@ -138,3 +142,17 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# Flutter Launcher Icons configuration
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/applogo.png"
+  min_sdk_android: 21 # android min sdk min:16, default 21
+  windows:
+    generate: true
+    image_path: "assets/images/applogo.png"
+    icon_size: 48 # min:48, max:256, default: 48
+  macos:
+    generate: true
+    image_path: "assets/images/applogo.png"

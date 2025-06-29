@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'services/geofence_service_helper.dart';
+import 'services/fcm_service.dart';
 import 'package:groupsharing/services/deep_link_service.dart';
 import 'package:groupsharing/models/map_marker.dart';
 import 'package:groupsharing/widgets/modern_map.dart';
@@ -12,7 +14,11 @@ import 'providers/location_provider.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/main/main_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
-import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
+import 'screens/permission_screen.dart';
+import 'screens/comprehensive_permission_screen.dart';
+import 'services/permission_manager.dart';
+import 'services/comprehensive_permission_service.dart';
+import 'services/life360_location_service.dart';
 import 'screens/performance_monitor_screen.dart';
 
 void main() async {
@@ -27,15 +33,35 @@ void main() async {
     systemNavigationBarIconBrightness: Brightness.dark, // Dark navigation icons
   ));
   
-  try {
-    await FMTCObjectBoxBackend().initialise();
-  } catch (error) {
-    // Optionally log or handle FMTC initialization errors
-  }
+  // FMTC initialization removed - not needed for core functionality
+  // try {
+  //   await FMTCObjectBoxBackend().initialise();
+  // } catch (error) {
+  //   // Optionally log or handle FMTC initialization errors
+  // }
   await Firebase.initializeApp();
+  
+  // Set up FCM background message handler
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  
+  // Initialize FCM service
+  await FCMService.initialize();
   
   // Initialize deep links
   DeepLinkService.initDeepLinks();
+  
+  // Initialize Life360-style location service
+  await Life360LocationService.initialize();
+  
+  // Check if we need to restore location tracking
+  final shouldRestore = await Life360LocationService.shouldRestoreTracking();
+  if (shouldRestore) {
+    final userId = await Life360LocationService.getRestoreUserId();
+    if (userId != null) {
+      debugPrint('Restoring location tracking for user: ${userId.substring(0, 8)}');
+      // The actual restoration will happen when the user logs in
+    }
+  }
   
   // Check if onboarding is completed
   final prefs = await SharedPreferences.getInstance();
@@ -55,11 +81,48 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   LocationProvider? _locationProvider;
+  bool _permissionsChecked = false;
+  bool _permissionsGranted = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _checkPermissions();
+  }
+  
+  Future<void> _checkPermissions() async {
+    try {
+      // Use comprehensive permission service for thorough checking
+      final granted = ComprehensivePermissionService.allPermissionsGranted;
+      
+      // If not granted, check detailed status
+      if (!granted) {
+        final status = await ComprehensivePermissionService.getDetailedPermissionStatus();
+        final allGranted = status['allGranted'] ?? false;
+        
+        setState(() {
+          _permissionsChecked = true;
+          _permissionsGranted = allGranted;
+        });
+      } else {
+        setState(() {
+          _permissionsChecked = true;
+          _permissionsGranted = true;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _permissionsChecked = true;
+        _permissionsGranted = false;
+      });
+    }
+  }
+  
+  void _onPermissionsGranted() {
+    setState(() {
+      _permissionsGranted = true;
+    });
   }
 
   @override
@@ -97,8 +160,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   void _handleAppTermination() {
     debugPrint('=== APP TERMINATION DETECTED ===');
-    // Clean up user data when app is being terminated/uninstalled
-    _locationProvider?.cleanupUserData();
+    // Clean up Life360 service when app is being terminated/uninstalled
+    Life360LocationService.cleanup();
+    _locationProvider?.stopTracking();
   }
 
   void _handleAppPaused() {
@@ -142,16 +206,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             ),
           ),
         ),
-        home: Consumer<AuthProvider>(
-          builder: (context, auth, _) {
-            if (!widget.isOnboardingComplete) {
-              return const OnboardingScreen();
-            }
-            return auth.isAuthenticated
-                ? const MainScreen()
-                : const LoginScreen();
-          },
-        ),
+        home: _buildHome(),
         routes: {
           '/login': (context) => const LoginScreen(),
           '/main': (context) => const MainScreen(),
@@ -159,6 +214,43 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           '/performance-monitor': (context) => const PerformanceMonitorScreen(),
         },
       ),
+    );
+  }
+  
+  Widget _buildHome() {
+    // Show loading while checking permissions
+    if (!_permissionsChecked) {
+      return const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Checking permissions...'),
+            ],
+          ),
+        ),
+      );
+    }
+    
+    // Show comprehensive permission screen if permissions not granted
+    if (!_permissionsGranted) {
+      return ComprehensivePermissionScreen(
+        onPermissionsGranted: _onPermissionsGranted,
+      );
+    }
+    
+    // Show normal app flow if permissions are granted
+    return Consumer<AuthProvider>(
+      builder: (context, auth, _) {
+        if (!widget.isOnboardingComplete) {
+          return const OnboardingScreen();
+        }
+        return auth.isAuthenticated
+            ? const MainScreen()
+            : const LoginScreen();
+      },
     );
   }
 }
@@ -244,11 +336,11 @@ class _LocationSharingPageState extends State<LocationSharingPage> {
           }
 
           // Convert nearby users to MapMarker objects
-          final markers = locationProvider.nearbyUsers
-              .map((userId) => MapMarker(
-                    id: userId,
+          final markers = locationProvider.nearbyUsers.entries
+              .map((entry) => MapMarker(
+                    id: entry.key,
                     point: locationProvider.currentLocation!, // Default to current location until we implement real-time updates
-                    label: 'User: $userId',
+                    label: 'User: ${entry.key}',
                     // Additional user details can be added here
                   ))
               .toSet();
@@ -280,7 +372,7 @@ class _LocationSharingPageState extends State<LocationSharingPage> {
                   color: Theme.of(context).cardColor,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
+                      color: Colors.black.withValues(alpha: 0.1),
                       blurRadius: 8,
                       offset: const Offset(0, -2),
                     ),

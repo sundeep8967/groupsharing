@@ -5,6 +5,7 @@ import '../../models/user_model.dart';
 import '../../models/friendship_model.dart';
 import '../../services/friend_service.dart';
 import '../../providers/location_provider.dart';
+import '../../services/presence_service.dart';
 import 'package:provider/provider.dart';
 
 /// Screen that displays detailed information about a friend
@@ -876,15 +877,22 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
     }
   }
 
-  /// Determines if friend is currently online (within 5 minutes)
+  /// Determines if friend is currently online based on location sharing status
   bool _isOnline(UserModel friend) {
-    if (friend.lastSeen == null) return false;
-    return DateTime.now().difference(friend.lastSeen!).inMinutes < 5;
+    final userData = {
+      'locationSharingEnabled': friend.locationSharingEnabled,
+      'lastLocationUpdate': friend.lastSeen?.millisecondsSinceEpoch,
+      'lastSeen': friend.lastSeen?.millisecondsSinceEpoch,
+    };
+    return PresenceService.isUserOnline(userData);
   }
 
-  /// Gets online status text
+  /// Gets online status text based on location sharing
   String _getOnlineStatus(UserModel friend) {
-    return _isOnline(friend) ? 'Online' : 'Offline';
+    if (!friend.locationSharingEnabled) {
+      return 'Location not shared';
+    }
+    return _isOnline(friend) ? 'Sharing location' : 'Location sharing inactive';
   }
 
   /// Formats last seen time in a user-friendly way

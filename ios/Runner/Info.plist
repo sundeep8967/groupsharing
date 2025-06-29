@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Groupsharing</string>
+	<string>GroupSharing</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -45,8 +45,14 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Location permissions - Critical for background location -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>This app needs access to location when open to share your location with friends.</string>
+	<string>GroupSharing needs location access to share your location with family members when you're using the app.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>GroupSharing needs continuous location access to keep your family updated about your whereabouts, even when the app is closed. This ensures your safety and helps family members know you're okay.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>GroupSharing needs background location access to continuously share your location with family members for safety and coordination, just like Find My Friends or Life360.</string>
+	
 	<!-- URL Scheme for deep linking -->
 	<key>CFBundleURLTypes</key>
 	<array>
@@ -60,18 +66,6 @@
 				<string>groupsharing</string>
 			</array>
 		</dict>
-	</array>
-	
-	<!-- Associated Domains for Universal Links -->
-	<key>com.apple.developer.associated-domains</key>
-	<array>
-		<string>applinks:yourappdomain.com</string>
-	</array>
-	
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>This app needs access to location when in the background to share your location with friends.</string>
-	<key>CFBundleURLTypes</key>
-	<array>
 		<dict>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
@@ -81,16 +75,64 @@
 			</array>
 		</dict>
 	</array>
-	<!-- Background location support -->
+	
+	<!-- Associated Domains for Universal Links -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:yourappdomain.com</string>
+	</array>
+	<!-- Background location support - Critical for persistent location -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<string>background-app-refresh</string>
+		<string>background-processing</string>
+		<string>background-fetch</string>
+		<string>remote-notification</string>
+		<string>silent-push</string>
 	</array>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>We use your location to keep your family updated even when the app is in the background.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>We use your location to keep your family updated.</string>
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>We use your location to keep your family updated even when the app is in the background.</string>
+	
+	<!-- Required for background location to work reliably -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.sundeep.groupsharing.background-location</string>
+		<string>com.sundeep.groupsharing.location-sync</string>
+		<string>com.sundeep.groupsharing.heartbeat</string>
+	</array>
+	
+	<!-- Motion and fitness permissions -->
+	<key>NSMotionUsageDescription</key>
+	<string>This app uses motion sensors to detect when you're driving for automatic trip tracking.</string>
+	
+	<!-- Microphone permission for emergency features -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app may use the microphone during emergency situations to help emergency responders.</string>
+	
+	<!-- Camera permission for emergency features -->
+	<key>NSCameraUsageDescription</key>
+	<string>This app may use the camera during emergency situations to help emergency responders.</string>
+	
+	<!-- Contacts permission for emergency contacts -->
+	<key>NSContactsUsageDescription</key>
+	<string>This app needs access to your contacts to set up emergency contacts for safety features.</string>
+	
+	<!-- App Transport Security -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>firebase.googleapis.com</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
+	
+	<!-- Privacy - Required for App Store -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

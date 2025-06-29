@@ -15,7 +15,7 @@ class LocationProvider with ChangeNotifier {
   StreamSubscription? _friendsLocationSubscription;
   StreamSubscription<DocumentSnapshot>? _userStatusSubscription;
   LatLng? _currentLocation;
-  List<String> _nearbyUsers = [];
+  final List<String> _nearbyUsers = [];
   bool _isTracking = false;
   bool _isInitialized = false;
   bool _mounted = true;

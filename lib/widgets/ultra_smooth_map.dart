@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_animations/flutter_map_animations.dart';
-import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart' as fmtc;
 import 'package:latlong2/latlong.dart' as latlong;
 
 import '../models/map_marker.dart';
@@ -73,7 +72,7 @@ class _UltraSmoothMapState extends State<UltraSmoothMap>
 
   void _initializeTileCache() async {
     try {
-      await fmtc.FMTCStore('ultraSmoothCache').manage.create();
+      // Removed tile caching initialization
     } catch (e) {
       debugPrint('Tile cache initialization: $e');
     }
@@ -332,13 +331,7 @@ class _UltraSmoothMapState extends State<UltraSmoothMap>
                     minZoom: 2,
                     retinaMode: false, // Disable retina for better performance
                     
-                    // Ultra-fast tile caching
-                    tileProvider: fmtc.FMTCStore('ultraSmoothCache').getTileProvider(
-                      settings: fmtc.FMTCTileProviderSettings(
-                        behavior: fmtc.CacheBehavior.cacheFirst,
-                        cachedValidDuration: const Duration(days: 30),
-                      ),
-                    ),
+                    // Ultra-fast tile caching removed
                     
                     // Error handling
                     errorTileCallback: (tile, error, stackTrace) {
