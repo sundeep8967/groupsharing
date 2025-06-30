@@ -33,6 +33,25 @@ public class PermissionHelper {
                 openAppSettings(context);
                 result.success(true);
                 break;
+            case "openOnePlusAutoStart":
+                openOnePlusAutoStartSettings(context);
+                result.success(true);
+                break;
+            case "openOnePlusBackgroundSettings":
+                openOnePlusBackgroundSettings(context);
+                result.success(true);
+                break;
+            case "openOnePlusAppLockSettings":
+                openOnePlusAppLockSettings(context);
+                result.success(true);
+                break;
+            case "openOnePlusGamingMode":
+                openOnePlusGamingModeSettings(context);
+                result.success(true);
+                break;
+            case "checkOnePlusOptimizations":
+                result.success(checkOnePlusOptimizations(context));
+                break;
             default:
                 result.notImplemented();
                 break;
@@ -233,5 +252,195 @@ public class PermissionHelper {
             }
         }
         return false;
+    }
+    
+    /**
+     * Check if device is OnePlus
+     */
+    public static boolean isOnePlusDevice() {
+        String manufacturer = Build.MANUFACTURER.toLowerCase();
+        String brand = Build.BRAND.toLowerCase();
+        return manufacturer.contains("oneplus") || 
+               brand.contains("oneplus") ||
+               manufacturer.contains("oppo"); // OnePlus is owned by Oppo
+    }
+    
+    /**
+     * Open OnePlus-specific auto-start settings
+     */
+    public static void openOnePlusAutoStartSettings(Context context) {
+        try {
+            Intent intent = null;
+            
+            // Try OnePlus specific auto-start settings
+            try {
+                intent = new Intent();
+                intent.setComponent(new android.content.ComponentName(
+                    "com.oneplus.security",
+                    "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity"
+                ));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+                Log.d(TAG, "Opened OnePlus auto-start settings");
+                return;
+            } catch (Exception e) {
+                Log.d(TAG, "OnePlus auto-start not available, trying alternatives");
+            }
+            
+            // Try Oppo/ColorOS auto-start (OnePlus uses ColorOS)
+            try {
+                intent = new Intent();
+                intent.setComponent(new android.content.ComponentName(
+                    "com.coloros.safecenter",
+                    "com.coloros.safecenter.permission.startup.StartupAppListActivity"
+                ));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+                Log.d(TAG, "Opened ColorOS auto-start settings");
+                return;
+            } catch (Exception e) {
+                Log.d(TAG, "ColorOS auto-start not available");
+            }
+            
+            // Fallback to generic auto-start
+            openAutoStartSettings(context);
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening OnePlus auto-start settings", e);
+            openAppSettings(context);
+        }
+    }
+    
+    /**
+     * Open OnePlus-specific background settings
+     */
+    public static void openOnePlusBackgroundSettings(Context context) {
+        try {
+            // Try to open battery optimization settings
+            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            intent.setData(Uri.parse("package:" + context.getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+            Log.d(TAG, "Opened OnePlus background settings");
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening OnePlus background settings", e);
+            openBatterySettings(context);
+        }
+    }
+    
+    /**
+     * Open OnePlus app lock settings
+     */
+    public static void openOnePlusAppLockSettings(Context context) {
+        try {
+            Intent intent = null;
+            
+            // Try OnePlus app lock
+            try {
+                intent = new Intent();
+                intent.setComponent(new android.content.ComponentName(
+                    "com.oneplus.security",
+                    "com.oneplus.security.applock.AppLockActivity"
+                ));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+                Log.d(TAG, "Opened OnePlus app lock settings");
+                return;
+            } catch (Exception e) {
+                Log.d(TAG, "OnePlus app lock not available");
+            }
+            
+            // Try ColorOS app lock
+            try {
+                intent = new Intent();
+                intent.setComponent(new android.content.ComponentName(
+                    "com.coloros.safecenter",
+                    "com.coloros.safecenter.applock.AppLockActivity"
+                ));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+                Log.d(TAG, "Opened ColorOS app lock settings");
+                return;
+            } catch (Exception e) {
+                Log.d(TAG, "ColorOS app lock not available");
+            }
+            
+            // Fallback to app settings
+            openAppSettings(context);
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening OnePlus app lock settings", e);
+            openAppSettings(context);
+        }
+    }
+    
+    /**
+     * Open OnePlus gaming mode settings
+     */
+    public static void openOnePlusGamingModeSettings(Context context) {
+        try {
+            Intent intent = null;
+            
+            // Try OnePlus Game Space
+            try {
+                intent = new Intent();
+                intent.setComponent(new android.content.ComponentName(
+                    "com.oneplus.gamespace",
+                    "com.oneplus.gamespace.MainActivity"
+                ));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+                Log.d(TAG, "Opened OnePlus Game Space");
+                return;
+            } catch (Exception e) {
+                Log.d(TAG, "OnePlus Game Space not available");
+            }
+            
+            // Try generic gaming mode
+            try {
+                Intent settingsIntent = new Intent(Settings.ACTION_SETTINGS);
+                settingsIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(settingsIntent);
+                Log.d(TAG, "Opened general settings for gaming mode");
+            } catch (Exception e) {
+                Log.d(TAG, "Could not open settings");
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening OnePlus gaming mode settings", e);
+        }
+    }
+    
+    /**
+     * Check OnePlus-specific optimizations
+     */
+    public static boolean checkOnePlusOptimizations(Context context) {
+        try {
+            // Check if battery optimization is disabled
+            boolean batteryOptDisabled = isBatteryOptimizationDisabled(context);
+            
+            // For OnePlus, we mainly rely on battery optimization status
+            // Other settings can't be checked programmatically
+            
+            Log.d(TAG, "OnePlus optimization check - Battery optimization disabled: " + batteryOptDisabled);
+            return batteryOptDisabled;
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error checking OnePlus optimizations", e);
+            return false;
+        }
+    }
+    
+    /**
+     * Get OnePlus-specific setup instructions
+     */
+    public static String getOnePlusSetupInstructions() {
+        return "OnePlus Setup Required:\n\n" +
+               "1. Battery Optimization: Settings > Battery > Battery optimization > GroupSharing > Don't optimize\n" +
+               "2. Auto-start: Settings > Apps > Auto-start management > GroupSharing > Enable\n" +
+               "3. Background Activity: Settings > Apps > App management > GroupSharing > Battery > Unrestricted\n" +
+               "4. Location Permission: Settings > Privacy > Permission manager > Location > GroupSharing > Allow all the time\n" +
+               "5. Sleep Standby: Settings > Battery > More battery settings > Sleep standby optimization > Disable\n\n" +
+               "These settings are CRITICAL for OnePlus devices to allow background location sharing.";
     }
 }

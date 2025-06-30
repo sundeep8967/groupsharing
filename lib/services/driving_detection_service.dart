@@ -6,6 +6,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../models/driving_session.dart';
+import 'dart:developer' as developer;
 
 /// Life360-style driving detection service
 /// Detects when users are driving using motion sensors, speed, and location patterns
@@ -457,7 +458,7 @@ class DrivingDetectionService {
 
   static void _log(String message) {
     if (kDebugMode) {
-      print('DRIVING_DETECTION: $message');
+      developer.log('DRIVING_DETECTION: $message');
     }
   }
 }

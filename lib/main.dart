@@ -3,22 +3,22 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'firebase_options.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'services/geofence_service_helper.dart';
 import 'services/fcm_service.dart';
 import 'package:groupsharing/services/deep_link_service.dart';
-import 'package:groupsharing/models/map_marker.dart';
-import 'package:groupsharing/widgets/modern_map.dart';
 import 'providers/auth_provider.dart';
 import 'providers/location_provider.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/main/main_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
-import 'screens/permission_screen.dart';
 import 'screens/comprehensive_permission_screen.dart';
-import 'services/permission_manager.dart';
+import 'screens/friends/friend_details_screen.dart';
 import 'services/comprehensive_permission_service.dart';
 import 'services/life360_location_service.dart';
+import 'services/bulletproof_location_service.dart';
+import 'services/comprehensive_location_fix_service.dart';
+import 'services/persistent_foreground_notification_service.dart';
 import 'screens/performance_monitor_screen.dart';
 
 void main() async {
@@ -33,13 +33,9 @@ void main() async {
     systemNavigationBarIconBrightness: Brightness.dark, // Dark navigation icons
   ));
   
-  // FMTC initialization removed - not needed for core functionality
-  // try {
-  //   await FMTCObjectBoxBackend().initialise();
-  // } catch (error) {
-  //   // Optionally log or handle FMTC initialization errors
-  // }
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   
   // Set up FCM background message handler
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
@@ -50,17 +46,46 @@ void main() async {
   // Initialize deep links
   DeepLinkService.initDeepLinks();
   
-  // Initialize Life360-style location service
+  // Initialize Persistent Foreground Notification Service
+  debugPrint('=== INITIALIZING PERSISTENT FOREGROUND NOTIFICATION SERVICE ===');
+  await PersistentForegroundNotificationService.initialize();
+  
+  // Initialize Comprehensive Location Fix Service (primary - includes all fixes)
+  debugPrint('=== INITIALIZING COMPREHENSIVE LOCATION FIX SERVICE ===');
+  await ComprehensiveLocationFixService.initialize();
+  
+  // Initialize Bulletproof Location Service (integrated into comprehensive service)
+  debugPrint('=== INITIALIZING BULLETPROOF LOCATION SERVICE ===');
+  await BulletproofLocationService.initialize();
+  
+  // Initialize Life360-style location service (fallback)
+  debugPrint('=== INITIALIZING LIFE360 LOCATION SERVICE ===');
   await Life360LocationService.initialize();
   
-  // Check if we need to restore location tracking
-  final shouldRestore = await Life360LocationService.shouldRestoreTracking();
+  // Check if we need to restore location tracking with comprehensive service
+  debugPrint('=== CHECKING FOR STATE RESTORATION ===');
+  final shouldRestore = await ComprehensiveLocationFixService.shouldRestoreTracking();
   if (shouldRestore) {
-    final userId = await Life360LocationService.getRestoreUserId();
+    final userId = await ComprehensiveLocationFixService.getRestoreUserId();
     if (userId != null) {
-      debugPrint('Restoring location tracking for user: ${userId.substring(0, 8)}');
-      // The actual restoration will happen when the user logs in
+      debugPrint('COMPREHENSIVE: Restoring location tracking for user: ${userId.substring(0, 8)}');
+      // Restore tracking with comprehensive service
+      final restored = await ComprehensiveLocationFixService.restoreTrackingState();
+      if (restored) {
+        debugPrint('COMPREHENSIVE: State restoration successful');
+        // Start persistent notification
+        await PersistentForegroundNotificationService.startPersistentNotification(userId);
+      } else {
+        debugPrint('COMPREHENSIVE: State restoration failed, trying fallback');
+        // Fallback to bulletproof service
+        final bulletproofRestored = await BulletproofLocationService.restoreTrackingState();
+        if (bulletproofRestored) {
+          debugPrint('BULLETPROOF: Fallback restoration successful');
+        }
+      }
     }
+  } else {
+    debugPrint('NO PREVIOUS STATE: Starting fresh');
   }
   
   // Check if onboarding is completed
@@ -138,7 +163,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // Handle app lifecycle changes
     switch (state) {
       case AppLifecycleState.detached:
-        // App is being terminated - clean up user data
+        // App is being terminated - ensure background tracking continues
         _handleAppTermination();
         break;
       case AppLifecycleState.paused:
@@ -146,7 +171,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         _handleAppPaused();
         break;
       case AppLifecycleState.resumed:
-        // App is resumed
+        // App is resumed - restore state if needed
         _handleAppResumed();
         break;
       case AppLifecycleState.inactive:
@@ -160,20 +185,60 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   void _handleAppTermination() {
     debugPrint('=== APP TERMINATION DETECTED ===');
-    // Clean up Life360 service when app is being terminated/uninstalled
-    Life360LocationService.cleanup();
-    _locationProvider?.stopTracking();
+    // DON'T clean up location services - they should continue in background
+    // Only clean up if user explicitly stops tracking
+    debugPrint('Background location tracking should continue...');
   }
 
   void _handleAppPaused() {
     debugPrint('=== APP PAUSED ===');
-    // App is paused but not terminated - no cleanup needed
+    // App is paused but not terminated - ensure background tracking continues
+    _ensureBackgroundTracking();
   }
 
   void _handleAppResumed() {
     debugPrint('=== APP RESUMED ===');
-    // App is resumed - reinitialize if needed
-    _locationProvider?.initialize();
+    // App is resumed - restore state and check service health
+    _restoreStateOnResume();
+  }
+  
+  Future<void> _ensureBackgroundTracking() async {
+    try {
+      // Check if bulletproof service is still running
+      final isTracking = BulletproofLocationService.isTracking;
+      if (isTracking) {
+        debugPrint('BULLETPROOF: Background tracking is active');
+      } else {
+        debugPrint('BULLETPROOF: Background tracking not active, checking for restoration');
+        await BulletproofLocationService.restoreTrackingState();
+      }
+    } catch (e) {
+      debugPrint('Error ensuring background tracking: $e');
+    }
+  }
+  
+  Future<void> _restoreStateOnResume() async {
+    try {
+      debugPrint('=== RESTORING STATE ON RESUME ===');
+      
+      // First, try to restore bulletproof service state
+      final bulletproofRestored = await BulletproofLocationService.restoreTrackingState();
+      if (bulletproofRestored) {
+        debugPrint('BULLETPROOF: State restored successfully on resume');
+      } else {
+        debugPrint('BULLETPROOF: No state to restore or restoration failed');
+      }
+      
+      // Also reinitialize location provider
+      _locationProvider?.initialize();
+      
+      // Check service health
+      final isHealthy = await BulletproofLocationService.checkServiceHealth();
+      debugPrint('BULLETPROOF: Service health check: $isHealthy');
+      
+    } catch (e) {
+      debugPrint('Error restoring state on resume: $e');
+    }
   }
 
   @override
@@ -212,6 +277,25 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           '/main': (context) => const MainScreen(),
           '/onboarding': (context) => const OnboardingScreen(),
           '/performance-monitor': (context) => const PerformanceMonitorScreen(),
+        },
+        onGenerateRoute: (settings) {
+          // Handle dynamic routes with arguments
+          switch (settings.name) {
+            case '/friend-details':
+              final args = settings.arguments as Map<String, dynamic>?;
+              final friendId = args?['friendId'] as String?;
+              final friendName = args?['friendName'] as String? ?? 'Friend';
+              if (friendId != null) {
+                return MaterialPageRoute(
+                  builder: (context) => FriendDetailsScreen(
+                    friendId: friendId,
+                    friendName: friendName,
+                  ),
+                );
+              }
+              break;
+          }
+          return null;
         },
       ),
     );
@@ -255,147 +339,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 }
 
-class LocationSharingPage extends StatefulWidget {
-  const LocationSharingPage({super.key});
-
-  @override
-  State<LocationSharingPage> createState() => _LocationSharingPageState();
-}
-
-class _LocationSharingPageState extends State<LocationSharingPage> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final locationProvider = Provider.of<LocationProvider>(context, listen: false);
-
-      if (authProvider.user != null) {
-        // Initialise and start geofencing for this user
-        GeofenceHelper.initialize(authProvider.user!.uid).then((_) => GeofenceHelper.start());
-        locationProvider.startTracking(authProvider.user!.uid);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    // Removed stopTracking from here to avoid calling provider after signOut
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Location Sharing'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () {
-              // Stop services before sign-out
-              Provider.of<LocationProvider>(context, listen: false).stopTracking();
-              GeofenceHelper.stop();
-              Provider.of<AuthProvider>(context, listen: false).signOut();
-            },
-          ),
-        ],
-      ),
-      body: Consumer2<LocationProvider, AuthProvider>(
-        builder: (context, locationProvider, authProvider, _) {
-          if (locationProvider.currentLocation == null) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    locationProvider.status,
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                  if (locationProvider.error != null)
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Text(
-                        locationProvider.error!,
-                        style: const TextStyle(
-                          color: Colors.red,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 20),
-                  if (locationProvider.error != null)
-                    ElevatedButton(
-                      onPressed: () => locationProvider.startTracking(authProvider.user!.uid),
-                      child: const Text('Retry'),
-                    ),
-                ],
-              ),
-            );
-          }
-
-          // Convert nearby users to MapMarker objects
-          final markers = locationProvider.nearbyUsers.entries
-              .map((entry) => MapMarker(
-                    id: entry.key,
-                    point: locationProvider.currentLocation!, // Default to current location until we implement real-time updates
-                    label: 'User: ${entry.key}',
-                    // Additional user details can be added here
-                  ))
-              .toSet();
-
-          return Column(
-            children: [
-              Expanded(
-                child: ModernMap(
-                  initialPosition: locationProvider.currentLocation!,
-                  markers: markers,
-                  userLocation: locationProvider.currentLocation!,
-                ),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton.icon(
-                onPressed: locationProvider.isTracking
-                    ? () => locationProvider.stopTracking()
-                    : () => locationProvider.startTracking(authProvider.user!.uid),
-                icon: Icon(
-                  locationProvider.isTracking ? Icons.location_on : Icons.location_off,
-                ),
-                label: Text(
-                  locationProvider.isTracking ? 'Stop Sharing' : 'Start Sharing',
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.all(16.0),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 8,
-                      offset: const Offset(0, -2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Nearby Users: ${locationProvider.nearbyUsers.length}',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
+// Background message handler for FCM
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  debugPrint('Handling a background message: ${message.messageId}');
 }

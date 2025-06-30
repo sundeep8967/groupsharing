@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'dart:developer' as developer;
 
 String generateFriendCode(String uid) {
   if (uid.isEmpty) return 'ABCDEF';
@@ -20,19 +21,19 @@ Future<void> main() async {
   final db = FirebaseFirestore.instance;
   final users = await db.collection('users').get();
   
-  print('Found ${users.docs.length} users to update');
+  developer.log('Found ${users.docs.length} users to update');
   
   for (var doc in users.docs) {
     final uid = doc.id;
     final newCode = generateFriendCode(uid);
     
-    print('Updating user $uid with code: $newCode');
+    developer.log('Updating user $uid with code: $newCode');
     
     await doc.reference.update({
       'friendCode': newCode,
     });
   }
   
-  print('All friend codes updated successfully!');
+  developer.log('All friend codes updated successfully!');
   exit(0);
 }

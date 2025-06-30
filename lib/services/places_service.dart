@@ -6,6 +6,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:geocoding/geocoding.dart';
 import '../models/smart_place.dart';
 import '../services/notification_service.dart';
+import 'dart:developer' as developer;
 
 /// Life360-style smart places service with automatic detection and geofencing
 class PlacesService {
@@ -523,6 +524,27 @@ class PlacesService {
     return true;
   }
 
+  /// Update place settings
+  static Future<bool> updatePlaceSettings(
+    String placeId, {
+    bool? notificationsEnabled,
+    bool? automationEnabled,
+    double? radius,
+    String? name,
+  }) async {
+    final place = _userPlaces[placeId];
+    if (place == null) return false;
+
+    final updatedPlace = place.copyWith(
+      notificationsEnabled: notificationsEnabled ?? place.notificationsEnabled,
+      automationEnabled: automationEnabled ?? place.automationEnabled,
+      radius: radius ?? place.radius,
+      name: name ?? place.name,
+    );
+
+    return await updatePlace(updatedPlace);
+  }
+
   /// Delete place
   static Future<bool> deletePlace(String placeId) async {
     if (_currentUserId == null) return false;
@@ -566,7 +588,7 @@ class PlacesService {
 
   static void _log(String message) {
     if (kDebugMode) {
-      print('PLACES_SERVICE: $message');
+      developer.log('PLACES_SERVICE: $message');
     }
   }
 }

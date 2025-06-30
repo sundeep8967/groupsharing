@@ -21,9 +21,12 @@ import 'dart:async';
 import '../../services/driving_detection_service.dart';
 import '../../services/places_service.dart';
 import '../../services/emergency_service.dart';
+import '../../services/comprehensive_location_fix_service.dart';
+import '../../services/persistent_foreground_notification_service.dart';
 import '../../models/driving_session.dart';
 import '../../models/smart_place.dart';
 import '../../models/emergency_event.dart';
+import '../../widgets/emergency_fix_button.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -60,6 +63,46 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   final List<SmartPlace> _userPlaces = [];
   SmartPlace? _currentPlace;
   bool _life360ServicesInitialized = false;
+  
+  /// Check if location sharing is working properly
+  bool _isLocationSharingWorking() {
+    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+    final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+    
+    // Don't show fix button if user is not logged in
+    if (authProvider.user == null) return true;
+    
+    // Location sharing is NOT working if:
+    // 1. Location services are disabled
+    if (!_locationEnabled) return false;
+    
+    // 2. User is trying to track but has errors
+    if (locationProvider.error != null && locationProvider.isTracking) {
+      return false;
+    }
+    
+    // 3. User wants to share location but tracking failed to start
+    if (locationProvider.error != null && !locationProvider.isTracking) {
+      return false;
+    }
+    
+    // 4. If user started tracking but still no location after reasonable time
+    // (This could indicate background location issues)
+    if (locationProvider.isTracking && 
+        locationProvider.currentLocation == null && 
+        locationProvider.status.contains('tracking')) {
+      return false;
+    }
+    
+    // 5. If status indicates problems
+    if (locationProvider.status.toLowerCase().contains('error') ||
+        locationProvider.status.toLowerCase().contains('failed') ||
+        locationProvider.status.toLowerCase().contains('stopped')) {
+      return false;
+    }
+    
+    return true;
+  }
   
   
   @override
@@ -420,6 +463,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ],
           ),
         ),
+        
+        // Emergency Fix Button (shows on all tabs when location sharing is not working)
+        EmergencyFixButton(
+          showButton: !_isLocationSharingWorking(),
+        ),
+        
         // Show a small notification instead of blocking the entire map
         if (!_locationEnabled && _selectedIndex == 1) // Only show on map tab
           Positioned(
@@ -604,7 +653,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 onPressed: () async {
                   final appUser = authProvider.user;
                     if (appUser != null) {
-                      await locationProvider.checkAndPromptBatteryOptimization();
                       locationProvider.startTracking(appUser.uid);
                     }
                 },
@@ -878,8 +926,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     if (locationProvider.isTracking) {
                       locationProvider.stopTracking();
                     } else {
-                      // Check battery optimization before starting tracking
-                      await locationProvider.checkAndPromptBatteryOptimization();
+                      // Start tracking without automatically opening settings
                       locationProvider.startTracking(appUser.uid);
                     }
                   },
@@ -1053,10 +1100,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   child: ElevatedButton.icon(
                     onPressed: () {
                       Navigator.pop(context);
-                      // TODO: Navigate to friend details or start navigation
+                      // Navigate to friend details screen
+                      Navigator.pushNamed(
+                        context,
+                        '/friend-details',
+                        arguments: {'friendId': marker.id},
+                      );
                     },
-                    icon: const Icon(Icons.directions),
-                    label: const Text('Navigate'),
+                    icon: const Icon(Icons.person),
+                    label: const Text('View Friend'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
                       foregroundColor: Colors.white,
@@ -1393,7 +1445,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.pop(context);
-                      // TODO: Navigate to place settings
+                      // Navigate to place settings screen
+                      _showPlaceSettingsDialog(place);
                     },
                     child: const Text('Settings'),
                   ),
@@ -1663,6 +1716,99 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     EmergencyService.triggerSOS(
       type: EmergencyType.general,
       message: 'Manual SOS trigger from map',
+    );
+  }
+
+  /// Show place settings dialog
+  void _showPlaceSettingsDialog(SmartPlace place) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${place.name} Settings'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SwitchListTile(
+              title: const Text('Notifications'),
+              subtitle: const Text('Get notified when you arrive or leave'),
+              value: place.notificationsEnabled,
+              onChanged: (value) async {
+                try {
+                  await PlacesService.updatePlaceSettings(
+                    place.id,
+                    notificationsEnabled: value,
+                  );
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        value 
+                            ? 'Notifications enabled for ${place.name}'
+                            : 'Notifications disabled for ${place.name}',
+                      ),
+                    ),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to update settings: $e')),
+                  );
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.delete, color: Colors.red),
+              title: const Text('Delete Place'),
+              subtitle: const Text('Remove this place permanently'),
+              onTap: () => _confirmDeletePlace(place),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Confirm place deletion
+  void _confirmDeletePlace(SmartPlace place) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Place'),
+        content: Text('Are you sure you want to delete "${place.name}"? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                await PlacesService.deletePlace(place.id);
+                Navigator.pop(context); // Close confirmation dialog
+                Navigator.pop(context); // Close settings dialog
+                setState(() {
+                  _userPlaces.removeWhere((p) => p.id == place.id);
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Deleted ${place.name}')),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to delete place: $e')),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
     );
   }
 

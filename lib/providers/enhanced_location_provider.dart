@@ -397,12 +397,47 @@ class EnhancedLocationProvider with ChangeNotifier {
     _currentLocation = location;
     _userLocations[_currentUserId!] = location;
     
+    // CRITICAL FIX: Sync location to Firebase Realtime Database
+    _syncLocationToFirebase(location);
+    
     // Check proximity notifications
     _checkProximityNotifications();
     
     if (_mounted) notifyListeners();
   }
   
+  /// Sync location to Firebase Realtime Database
+  Future<void> _syncLocationToFirebase(LatLng location) async {
+    if (_currentUserId == null) return;
+    
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      
+      // Update Realtime Database with location
+      await _realtimeDb.ref('locations/${_currentUserId!}').set({
+        'lat': location.latitude,
+        'lng': location.longitude,
+        'timestamp': timestamp,
+        'isSharing': true,
+        'accuracy': 10.0, // Default accuracy
+      });
+      
+      // Also update Firestore for persistence
+      await FirebaseFirestore.instance.collection('users').doc(_currentUserId!).update({
+        'location': {
+          'lat': location.latitude,
+          'lng': location.longitude,
+          'timestamp': FieldValue.serverTimestamp(),
+        },
+        'lastLocationUpdate': FieldValue.serverTimestamp(),
+      });
+      
+      developer.log('Location synced to Firebase: ${location.latitude}, ${location.longitude}');
+    } catch (e) {
+      developer.log('Error syncing location to Firebase: $e');
+    }
+  }
+
   void _handleLocationError(String error) {
     developer.log('Location error from persistent service: $error');
     _error = error;

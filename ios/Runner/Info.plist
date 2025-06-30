@@ -96,6 +96,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.sundeep.groupsharing.background-location</string>
+		<string>com.sundeep.groupsharing.bulletproof-location</string>
 		<string>com.sundeep.groupsharing.location-sync</string>
 		<string>com.sundeep.groupsharing.heartbeat</string>
 	</array>

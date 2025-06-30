@@ -132,7 +132,7 @@ class LocationHistoryScreen extends StatelessWidget {
                   ),
                 ),
                 beforeLineStyle: LineStyle(
-                  color: Theme.of(context).primaryColor.withOpacity(0.4),
+                  color: Theme.of(context).primaryColor.withValues(alpha: 0.4),
                 ),
                 endChild: Padding(
                   padding: const EdgeInsets.all(16.0),
@@ -156,7 +156,7 @@ class LocationHistoryScreen extends StatelessWidget {
                               .textTheme
                               .bodyMedium
                               ?.color
-                              ?.withOpacity(0.7),
+                              ?.withValues(alpha: 0.7),
                         ),
                       ),
                       if (location.address != null) ...[
@@ -168,7 +168,7 @@ class LocationHistoryScreen extends StatelessWidget {
                                 .textTheme
                                 .bodyMedium
                                 ?.color
-                                ?.withOpacity(0.7),
+                                ?.withValues(alpha: 0.7),
                           ),
                         ),
                       ],

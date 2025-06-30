@@ -101,7 +101,11 @@ class _ChatScreenState extends State<ChatScreen> {
           IconButton(
             icon: const Icon(Icons.map),
             onPressed: () {
-              // TODO: Show friend's location on map
+              // Navigate to main screen with map tab and focus on friend
+              Navigator.of(context).pushReplacementNamed(
+                '/main',
+                arguments: {'focusOnFriend': widget.friendId},
+              );
             },
           ),
         ],

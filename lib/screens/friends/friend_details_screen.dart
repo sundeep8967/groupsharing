@@ -5,6 +5,7 @@ import '../../models/user_model.dart';
 import '../../models/friendship_model.dart';
 import '../../services/friend_service.dart';
 import '../../providers/location_provider.dart';
+import '../../providers/auth_provider.dart' as app_auth;
 import '../../services/presence_service.dart';
 import 'package:provider/provider.dart';
 
@@ -135,6 +136,26 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
             onPressed: _loadFriendDetails,
             tooltip: 'Refresh',
           ),
+          // Menu button with unfriend option
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'unfriend') {
+                _showUnfriendDialog();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'unfriend',
+                child: Row(
+                  children: [
+                    Icon(Icons.person_remove, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('Remove Friend', style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: SafeArea(
@@ -255,7 +276,7 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
           end: Alignment.bottomRight,
           colors: [
             Theme.of(context).primaryColor,
-            Theme.of(context).primaryColor.withOpacity(0.7),
+            Theme.of(context).primaryColor.withValues(alpha: 0.7),
           ],
         ),
         borderRadius: BorderRadius.circular(20),
@@ -269,7 +290,7 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.white.withOpacity(0.3),
+                  color: Colors.white.withValues(alpha: 0.3),
                   blurRadius: 20,
                   spreadRadius: 5,
                 ),
@@ -313,7 +334,7 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
             friend.email,
             style: TextStyle(
               fontSize: 16,
-              color: Colors.white.withOpacity(0.9),
+              color: Colors.white.withValues(alpha: 0.9),
             ),
             textAlign: TextAlign.center,
           ),
@@ -363,18 +384,18 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
           end: Alignment.bottomRight,
           colors: [
             _currentCategory == FriendshipCategory.family 
-                ? Colors.purple.withOpacity(0.1)
-                : Colors.blue.withOpacity(0.1),
+                ? Colors.purple.withValues(alpha: 0.1)
+                : Colors.blue.withValues(alpha: 0.1),
             _currentCategory == FriendshipCategory.family 
-                ? Colors.purple.withOpacity(0.05)
-                : Colors.blue.withOpacity(0.05),
+                ? Colors.purple.withValues(alpha: 0.05)
+                : Colors.blue.withValues(alpha: 0.05),
           ],
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: _currentCategory == FriendshipCategory.family 
-              ? Colors.purple.withOpacity(0.2)
-              : Colors.blue.withOpacity(0.2),
+              ? Colors.purple.withValues(alpha: 0.2)
+              : Colors.blue.withValues(alpha: 0.2),
         ),
       ),
       child: Column(
@@ -409,13 +430,13 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: _currentCategory == FriendshipCategory.family 
-                  ? Colors.purple.withOpacity(0.1)
-                  : Colors.blue.withOpacity(0.1),
+                  ? Colors.purple.withValues(alpha: 0.1)
+                  : Colors.blue.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: _currentCategory == FriendshipCategory.family 
-                    ? Colors.purple.withOpacity(0.3)
-                    : Colors.blue.withOpacity(0.3),
+                    ? Colors.purple.withValues(alpha: 0.3)
+                    : Colors.blue.withValues(alpha: 0.3),
               ),
             ),
             child: Row(
@@ -508,14 +529,14 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
       icon: Icon(icon, size: 18),
       label: Text(label),
       style: ElevatedButton.styleFrom(
-        backgroundColor: isSelected ? color : color.withOpacity(0.1),
+        backgroundColor: isSelected ? color : color.withValues(alpha: 0.1),
         foregroundColor: isSelected ? Colors.white : color,
         elevation: isSelected ? 2 : 0,
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
           side: BorderSide(
-            color: color.withOpacity(isSelected ? 0 : 0.3),
+            color: color.withValues(alpha: isSelected ? 0 : 0.3),
           ),
         ),
       ),
@@ -573,9 +594,9 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Column(
         children: [
@@ -617,12 +638,12 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Colors.blue.withOpacity(0.1),
-            Colors.blue.withOpacity(0.05),
+            Colors.blue.withValues(alpha: 0.1),
+            Colors.blue.withValues(alpha: 0.05),
           ],
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.blue.withOpacity(0.2)),
+        border: Border.all(color: Colors.blue.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -645,7 +666,7 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
                 icon: const Icon(Icons.map, color: Colors.blue),
                 tooltip: 'Open in Google Maps',
                 style: IconButton.styleFrom(
-                  backgroundColor: Colors.blue.withOpacity(0.1),
+                  backgroundColor: Colors.blue.withValues(alpha: 0.1),
                 ),
               ),
             ],
@@ -763,7 +784,7 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
         Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.grey.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(icon, size: 20, color: Colors.grey[600]),
@@ -930,6 +951,88 @@ class _FriendDetailsScreenState extends State<FriendDetailsScreen> {
         return 'Family';
       case FriendshipCategory.friend:
         return 'Friend';
+    }
+  }
+
+  /// Shows confirmation dialog for unfriending
+  void _showUnfriendDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Friend'),
+        content: Text(
+          'Are you sure you want to remove ${widget.friendName} from your friends list? This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _unfriendUser();
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Removes the friend and navigates back
+  Future<void> _unfriendUser() async {
+    try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // Get current user
+      final currentUser = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
+      if (currentUser == null) {
+        throw Exception('User not logged in');
+      }
+
+      // Remove friend using the service
+      await _friendService.removeFriend(currentUser.uid, widget.friendId);
+
+      // Hide loading indicator
+      if (mounted) Navigator.of(context).pop();
+
+      // Show success message and navigate back
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${widget.friendName} has been removed from your friends'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        
+        // Navigate back to friends list
+        Navigator.of(context).pop();
+      }
+
+    } catch (e) {
+      // Hide loading indicator
+      if (mounted) Navigator.of(context).pop();
+
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to remove friend: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 }

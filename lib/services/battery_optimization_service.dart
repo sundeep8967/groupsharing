@@ -77,8 +77,69 @@ class BatteryOptimizationService {
       if (!isDisabled && context.mounted) {
         await showBatteryOptimizationDialog(context);
       }
+      
+      // Also check device-specific optimizations
+      await checkDeviceSpecificOptimizations(context);
     } catch (e) {
       debugPrint('Error in battery optimization check: $e');
+    }
+  }
+  
+  /// Check device-specific battery optimizations
+  static Future<void> checkDeviceSpecificOptimizations(BuildContext context) async {
+    if (!Platform.isAndroid) return;
+    
+    try {
+      await _channel.invokeMethod('checkDeviceSpecificOptimizations');
+    } catch (e) {
+      debugPrint('Error checking device-specific optimizations: $e');
+    }
+  }
+  
+  /// Request auto-start permission (OnePlus, Oppo, Vivo, Realme)
+  static Future<void> requestAutoStartPermission() async {
+    if (!Platform.isAndroid) return;
+    
+    try {
+      await _channel.invokeMethod('requestAutoStartPermission');
+    } catch (e) {
+      debugPrint('Error requesting auto-start permission: $e');
+    }
+  }
+  
+  /// Request background app permission (Xiaomi, Huawei)
+  static Future<void> requestBackgroundAppPermission() async {
+    if (!Platform.isAndroid) return;
+    
+    try {
+      await _channel.invokeMethod('requestBackgroundAppPermission');
+    } catch (e) {
+      debugPrint('Error requesting background app permission: $e');
+    }
+  }
+  
+  /// Get comprehensive battery optimization status
+  static Future<Map<String, dynamic>> getComprehensiveOptimizationStatus() async {
+    if (!Platform.isAndroid) {
+      return {
+        'batteryOptimizationDisabled': true,
+        'autoStartEnabled': true,
+        'backgroundAppEnabled': true,
+        'deviceManufacturer': 'iOS',
+      };
+    }
+    
+    try {
+      final result = await _channel.invokeMethod('getComprehensiveOptimizationStatus');
+      return Map<String, dynamic>.from(result ?? {});
+    } catch (e) {
+      debugPrint('Error getting comprehensive optimization status: $e');
+      return {
+        'batteryOptimizationDisabled': false,
+        'autoStartEnabled': false,
+        'backgroundAppEnabled': false,
+        'error': e.toString(),
+      };
     }
   }
 }

@@ -30,7 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  firebase_database: ^11.1.4
+  firebase_database: ^10.5.7
 
   # Core Flutter packages
   cupertino_icons: ^1.0.2
@@ -60,16 +60,16 @@ dependencies:
   geocoding: ^2.1.1
   
   # Firebase packages for backend and real-time updates
-  firebase_core: ^3.14.0
-  firebase_auth: ^5.6.0
-  cloud_firestore: ^5.6.0
-  firebase_storage: ^12.4.7
+  firebase_core: ^2.24.2
+  firebase_auth: ^4.15.3
+  cloud_firestore: ^4.13.6
+  firebase_storage: ^11.5.6
   connectivity_plus: ^5.0.2
   geofence_service: ^6.0.0+1
   app_links: ^6.2.0
   google_sign_in: ^6.1.6
-  firebase_messaging: ^15.2.7
-  cloud_functions: ^5.2.7
+  firebase_messaging: ^14.7.10
+  cloud_functions: ^4.6.13
 
   # Device ringer mode (Android only)
   
@@ -95,6 +95,10 @@ dependencies:
   path_provider: ^2.1.2
   battery_plus: ^5.0.0
   device_info_plus: ^9.0.0
+  
+  # Missing dependencies
+  flutter_cache_manager: ^3.3.1
+  firebase_crashlytics: ^3.4.9
 
 dev_dependencies:
   flutter_test:
@@ -105,11 +109,10 @@ dev_dependencies:
   flutter_launcher_icons: ^0.13.1 # For generating launcher icons
 
 dependency_overrides:
-  # Remove problematic overrides to let Flutter resolve compatible versions
-  # firebase_auth_platform_interface: 7.0.9
-  # google_sign_in_platform_interface: 2.4.1
-  # firebase_core_platform_interface: 5.0.0
-  # firebase_auth_web: 5.12.0
+  # Fix Firebase web compatibility issues
+  firebase_auth_web: 5.8.12
+  firebase_core_web: 2.10.0
+  firebase_storage_web: 3.6.21
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../services/auth_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:developer' as developer;
 // Somewhere accessible, e.g., in auth_provider.dart or a separate auth_result.dart
 class AuthResult {
   final bool success;
@@ -43,7 +44,7 @@ class AuthProvider with ChangeNotifier {
 
       final user = _user;
       if (user != null) {
-        print('[TESTING] User signed in with Google. User ID: \\${user.uid}. Checking/generating friend code...');
+        developer.log('[TESTING] User signed in with Google. User ID: \\${user.uid}. Checking/generating friend code...');
         final userDoc = FirebaseFirestore.instance.collection('users').doc(user.uid);
         final docSnap = await userDoc.get();
         print('[TESTING] Firestore docSnap for Google user: \\${docSnap.data()}');
@@ -52,7 +53,7 @@ class AuthProvider with ChangeNotifier {
         if (!docSnap.exists || docSnap.data() == null) {
           // If document does not exist, create a new one
           friendCode = await _authService.generateUniqueFriendCode();
-          print('[TESTING] Creating new user document for Google user: \\${user.uid}');
+          developer.log('[TESTING] Creating new user document for Google user: \\${user.uid}');
           Map<String, dynamic> userDataToSet = {
             'email': user.email?.toLowerCase(),
             'displayName': user.displayName,
@@ -65,9 +66,9 @@ class AuthProvider with ChangeNotifier {
         } else {
           if (friendCode == null || friendCode.length != 6) {
             friendCode = await _authService.generateUniqueFriendCode();
-            print('[TESTING] Generated/obtained friendCode for Google user: \\${friendCode}');
+            developer.log('[TESTING] Generated/obtained friendCode for Google user: \\${friendCode}');
           } else {
-            print('[TESTING] Existing valid friendCode found for Google user: \\${friendCode}');
+            developer.log('[TESTING] Existing valid friendCode found for Google user: \\${friendCode}');
           }
 
           Map<String, dynamic> userDataToSet = {
@@ -82,7 +83,7 @@ class AuthProvider with ChangeNotifier {
             userDataToSet['createdAt'] = FieldValue.serverTimestamp();
           }
 
-          print('[TESTING] Saving/updating Google user data to Firestore. Data being set: \\${userDataToSet}');
+          developer.log('[TESTING] Saving/updating Google user data to Firestore. Data being set: \\${userDataToSet}');
           await userDoc.set(userDataToSet, SetOptions(merge: true));
         }
 
@@ -92,7 +93,7 @@ class AuthProvider with ChangeNotifier {
         // throwing an error or returning a specific cancellation state.
         // If it still reaches here, it means the Firebase current user is null
         // after the sign-in flow completed without error.
-        print('[TESTING] signInWithGoogle completed but FirebaseAuth.instance.currentUser is null.');
+        developer.log('[TESTING] signInWithGoogle completed but FirebaseAuth.instance.currentUser is null.');
         return AuthResult(success: false, error: 'Sign-in flow completed without an active user.');
       }
     } on Exception catch (e) { // Catch all exceptions from _authService.signInWithGoogle()
@@ -119,7 +120,7 @@ class AuthProvider with ChangeNotifier {
     return true; // Success
     
   } catch (e) {
-    print('Sign out error: $e');
+    developer.log('Sign out error: $e');
     return false; // Failed
     
   } finally {

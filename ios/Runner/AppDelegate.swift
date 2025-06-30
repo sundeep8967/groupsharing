@@ -9,6 +9,7 @@ import Firebase
   private var drivingDetectionManager: DrivingDetectionManager?
   private var emergencyManager: EmergencyManager?
   private var geofenceManager: GeofenceManager?
+  private var bulletproofLocationManager: BulletproofLocationManager?
   
   override func application(
     _ application: UIApplication,
@@ -26,14 +27,17 @@ import Firebase
       drivingDetectionManager = DrivingDetectionManager.shared
       emergencyManager = EmergencyManager.shared
       geofenceManager = GeofenceManager.shared
+      bulletproofLocationManager = BulletproofLocationManager.shared
       
       // Restore tracking state if app was terminated
       _ = backgroundLocationManager?.restoreTrackingState()
+      _ = bulletproofLocationManager?.restoreTrackingState()
     }
     
     // Set up method channels
     setupLocationChannels()
     setupNativeServiceChannels()
+    setupBulletproofLocationChannels()
     
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -61,6 +65,16 @@ import Firebase
     
     backgroundChannel.setMethodCallHandler { [weak self] (call, result) in
       self?.handleBackgroundLocationCall(call, result: result)
+    }
+    
+    // Setup battery optimization channel (iOS compatibility)
+    let batteryChannel = FlutterMethodChannel(
+      name: "com.sundeep.groupsharing/battery_optimization",
+      binaryMessenger: controller.binaryMessenger
+    )
+    
+    batteryChannel.setMethodCallHandler { [weak self] (call, result) in
+      self?.handleBatteryOptimizationCall(call, result: result)
     }
   }
   
@@ -96,6 +110,23 @@ import Firebase
     case "registerBackgroundLocationHandler":
       // Background handlers are automatically registered in iOS
       result(true)
+      
+    case "initialize":
+      result(true)
+      
+    case "startPersistentService":
+      guard let args = call.arguments as? [String: Any],
+            let userId = args["userId"] as? String else {
+        result(FlutterError(code: "INVALID_ARGUMENT", message: "User ID required", details: nil))
+        return
+      }
+      
+      let success = locationManager.startTracking(userId: userId)
+      result(success)
+      
+    case "stopPersistentService":
+      let success = locationManager.stopTracking()
+      result(success)
       
     default:
       result(FlutterMethodNotImplemented)
@@ -324,6 +355,192 @@ import Firebase
     
     if #available(iOS 13.0, *) {
       backgroundLocationManager?.handleAppWillTerminate()
+      bulletproofLocationManager?.handleAppWillTerminate()
+    }
+  }
+  
+  // MARK: - Bulletproof Location Service Channels
+  
+  private func setupBulletproofLocationChannels() {
+    guard let controller = window?.rootViewController as? FlutterViewController else {
+      return
+    }
+    
+    // Setup bulletproof location service channel
+    let bulletproofChannel = FlutterMethodChannel(
+      name: "bulletproof_location_service",
+      binaryMessenger: controller.binaryMessenger
+    )
+    
+    bulletproofChannel.setMethodCallHandler { [weak self] (call, result) in
+      self?.handleBulletproofLocationCall(call, result: result)
+    }
+    
+    // Setup bulletproof permissions channel
+    let permissionsChannel = FlutterMethodChannel(
+      name: "bulletproof_permissions",
+      binaryMessenger: controller.binaryMessenger
+    )
+    
+    permissionsChannel.setMethodCallHandler { [weak self] (call, result) in
+      self?.handleBulletproofPermissionsCall(call, result: result)
+    }
+    
+    // Setup bulletproof battery channel (iOS doesn't have battery optimization like Android)
+    let batteryChannel = FlutterMethodChannel(
+      name: "bulletproof_battery",
+      binaryMessenger: controller.binaryMessenger
+    )
+    
+    batteryChannel.setMethodCallHandler { [weak self] (call, result) in
+      self?.handleBulletproofBatteryCall(call, result: result)
+    }
+  }
+  
+  private func handleBulletproofLocationCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    guard #available(iOS 13.0, *),
+          let bulletproofManager = bulletproofLocationManager else {
+      result(FlutterError(code: "UNAVAILABLE", message: "iOS 13.0+ required", details: nil))
+      return
+    }
+    
+    // Set up method channel communication for callbacks
+    if let controller = window?.rootViewController as? FlutterViewController {
+      let bulletproofChannel = FlutterMethodChannel(
+        name: "bulletproof_location_service",
+        binaryMessenger: controller.binaryMessenger
+      )
+      bulletproofManager.setMethodChannel(bulletproofChannel)
+    }
+    
+    switch call.method {
+    case "initialize":
+      let success = bulletproofManager.initialize()
+      result(success)
+      
+    case "initializeIOS":
+      let success = bulletproofManager.initialize()
+      result(success)
+      
+    case "startBulletproofService":
+      guard let args = call.arguments as? [String: Any],
+            let userId = args["userId"] as? String else {
+        result(FlutterError(code: "INVALID_ARGUMENT", message: "User ID required", details: nil))
+        return
+      }
+      
+      let updateInterval = args["updateInterval"] as? Int ?? 15000
+      let distanceFilter = args["distanceFilter"] as? Double ?? 10.0
+      let enableHighAccuracy = args["enableHighAccuracy"] as? Bool ?? true
+      let enablePersistentMode = args["enablePersistentMode"] as? Bool ?? true
+      
+      let config = BulletproofLocationConfig(
+        updateInterval: updateInterval,
+        distanceFilter: distanceFilter,
+        enableHighAccuracy: enableHighAccuracy,
+        enablePersistentMode: enablePersistentMode
+      )
+      
+      let success = bulletproofManager.startTracking(userId: userId, config: config)
+      result(success)
+      
+    case "stopBulletproofService":
+      let success = bulletproofManager.stopTracking()
+      result(success)
+      
+    case "checkServiceHealth":
+      result(bulletproofManager.isHealthy())
+      
+    case "setupDeviceOptimizations":
+      // iOS doesn't need device-specific optimizations like Android
+      result(true)
+      
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+  
+  private func handleBulletproofPermissionsCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    guard #available(iOS 13.0, *),
+          let bulletproofManager = bulletproofLocationManager else {
+      result(FlutterError(code: "UNAVAILABLE", message: "iOS 13.0+ required", details: nil))
+      return
+    }
+    
+    switch call.method {
+    case "initializePermissionMonitoring":
+      bulletproofManager.initializePermissionMonitoring()
+      result(true)
+      
+    case "checkBackgroundLocationPermission":
+      result(bulletproofManager.hasBackgroundLocationPermission())
+      
+    case "requestBackgroundLocationPermission":
+      bulletproofManager.requestBackgroundLocationPermission()
+      result(true)
+      
+    case "checkExactAlarmPermission":
+      // iOS doesn't have exact alarm permissions like Android
+      result(true)
+      
+    case "requestExactAlarmPermission":
+      // iOS doesn't need exact alarm permissions
+      result(true)
+      
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+  
+  private func handleBatteryOptimizationCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    // iOS doesn't have battery optimization settings like Android
+    switch call.method {
+    case "isBatteryOptimizationDisabled":
+      result(true) // iOS doesn't have battery optimization
+      
+    case "requestDisableBatteryOptimization":
+      result(nil) // No action needed on iOS
+      
+    case "checkDeviceSpecificOptimizations":
+      result(true) // No device-specific optimizations needed on iOS
+      
+    case "requestAutoStartPermission":
+      result(nil) // No auto-start permission needed on iOS
+      
+    case "requestBackgroundAppPermission":
+      result(nil) // No background app permission needed on iOS
+      
+    case "getComprehensiveOptimizationStatus":
+      let status: [String: Any] = [
+        "batteryOptimizationDisabled": true,
+        "autoStartEnabled": true,
+        "backgroundAppEnabled": true,
+        "deviceManufacturer": "iOS"
+      ]
+      result(status)
+      
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+  
+  private func handleBulletproofBatteryCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    // iOS doesn't have battery optimization settings like Android
+    switch call.method {
+    case "initializeBatteryOptimizations":
+      result(true)
+      
+    case "requestBatteryOptimizationExemption":
+      result(true)
+      
+    case "requestAutoStartPermission":
+      result(true)
+      
+    case "requestBackgroundAppPermission":
+      result(true)
+      
+    default:
+      result(FlutterMethodNotImplemented)
     }
   }
 }

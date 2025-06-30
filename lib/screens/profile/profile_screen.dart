@@ -13,6 +13,8 @@ import '../../services/deep_link_service.dart';
 import '../../models/saved_place.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/services.dart';
+import '../settings/battery_optimization_screen.dart';
+import '../debug/background_location_fix_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -132,6 +134,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 24),
                   _buildSavedPlaces(theme),
                   const SizedBox(height: 24),
+                  _buildSettingsSection(theme),
+                  const SizedBox(height: 24),
                   // Removed delete account button from here
                   SizedBox(height: bottomPadding + 80), // Extra space for the button
                 ],
@@ -170,7 +174,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: colorScheme.shadow.withOpacity(0.05),
+                    color: colorScheme.shadow.withValues(alpha: 0.05),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -432,7 +436,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   'No saved places yet',
                   style: TextStyle(
                     fontSize: 14,
-                    color: theme.colorScheme.onSurface.withOpacity(0.6),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                   ),
                 ),
               );
@@ -454,7 +458,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   'No saved places yet',
                   style: TextStyle(
                     fontSize: 14,
-                    color: theme.colorScheme.onSurface.withOpacity(0.6),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                   ),
                 ),
               );
@@ -783,5 +787,115 @@ Future<void> _handleReauthentication() async {
     );
   }
 }
+
+  /// Build settings section
+  Widget _buildSettingsSection(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Settings',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.grey.shade200),
+          ),
+          child: Column(
+            children: [
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.battery_saver, color: Colors.orange.shade700, size: 20),
+                ),
+                title: const Text(
+                  'Battery Optimization',
+                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Improve location sharing reliability',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const BatteryOptimizationScreen(),
+                    ),
+                  );
+                },
+              ),
+              Divider(height: 1, color: Colors.grey.shade200),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.build, color: Colors.red.shade700, size: 20),
+                ),
+                title: const Text(
+                  'Fix Background Location',
+                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Diagnose and fix location issues',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const BackgroundLocationFixScreen(),
+                    ),
+                  );
+                },
+              ),
+              Divider(height: 1, color: Colors.grey.shade200),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.location_on, color: Colors.blue.shade700, size: 20),
+                ),
+                title: const Text(
+                  'Location Permissions',
+                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Manage location access settings',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.pushNamed(context, '/location-permissions');
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
 }

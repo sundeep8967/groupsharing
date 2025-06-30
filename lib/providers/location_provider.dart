@@ -4,11 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:geocoding/geocoding.dart';
 import '../services/persistent_location_service.dart';
-import '../services/life360_location_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
 import '../services/proximity_service.dart';
+import '../services/comprehensive_location_fix_service.dart';
+import '../services/persistent_foreground_notification_service.dart';
 import '../utils/performance_optimizer.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -36,11 +38,11 @@ class LocationProvider with ChangeNotifier {
   String? _city;
   String? _country;
   String? _postalCode;
-  final Map<String, dynamic> _nearbyUsers = {};
+  List<String> _nearbyUsers = [];
   
-  // Callbacks for location service events
-  Function()? onLocationServiceDisabled;
-  Function()? onLocationServiceEnabled;
+  // Callbacks for location service state changes
+  VoidCallback? onLocationServiceDisabled;
+  VoidCallback? onLocationServiceEnabled;
   
   // Subscriptions
   StreamSubscription<DatabaseEvent>? _realtimeLocationSubscription;
@@ -71,7 +73,7 @@ class LocationProvider with ChangeNotifier {
   String? get city => _city;
   String? get country => _country;
   String? get postalCode => _postalCode;
-  Map<String, dynamic> get nearbyUsers => _nearbyUsers;
+  List<String> get nearbyUsers => _nearbyUsers;
   
   /// Initialize the enhanced location provider
   Future<bool> initialize() async {
@@ -142,18 +144,32 @@ class LocationProvider with ChangeNotifier {
       // Update Firebase status immediately
       await _updateLocationSharingStatus(userId, true);
       
-      // Start Life360-style location service (primary)
-      final life360Started = await Life360LocationService.startTracking(
-        userId: userId,
-        onLocationUpdate: _handleLocationUpdate,
-        onError: _handleLocationError,
-        onServiceStopped: _handleServiceStopped,
-      );
+      // Start comprehensive location fix service (primary)
+      final comprehensiveStarted = await ComprehensiveLocationFixService.startTracking(userId);
       
-      if (!life360Started) {
-        developer.log('Life360 service failed to start, trying persistent service');
+      if (comprehensiveStarted) {
+        developer.log('Comprehensive location service started successfully');
         
-        // Fallback to persistent service
+        // Setup callbacks for comprehensive service
+        ComprehensiveLocationFixService.onLocationUpdate = _handleLocationUpdate;
+        ComprehensiveLocationFixService.onError = _handleLocationError;
+        ComprehensiveLocationFixService.onStatusUpdate = (status) {
+          _status = status;
+          if (_mounted) notifyListeners();
+        };
+        
+        // Start persistent notification
+        await PersistentForegroundNotificationService.startPersistentNotification(userId);
+        
+        // Update notification with initial status
+        await PersistentForegroundNotificationService.updateLocationStatus(
+          status: 'Location sharing started',
+          isSharing: true,
+        );
+      } else {
+        developer.log('Comprehensive service failed to start, trying persistent service');
+        
+        // Fallback to persistent location service
         final persistentStarted = await PersistentLocationService.startTracking(
           userId: userId,
           onLocationUpdate: _handleLocationUpdate,
@@ -162,7 +178,7 @@ class LocationProvider with ChangeNotifier {
         );
         
         if (!persistentStarted) {
-          developer.log('Both services failed, using Flutter fallback');
+          developer.log('Persistent service failed to start, using fallback');
           await _startFallbackTracking(userId);
         }
       }
@@ -202,10 +218,13 @@ class LocationProvider with ChangeNotifier {
         _userSharingStatus[_currentUserId!] = false;
       }
       
-      // Stop Life360-style location service
-      await Life360LocationService.stopTracking();
+      // Stop comprehensive location service
+      await ComprehensiveLocationFixService.stopTracking();
       
-      // Also stop persistent service as fallback
+      // Stop persistent notification
+      await PersistentForegroundNotificationService.stopPersistentNotification();
+      
+      // Stop persistent location service (fallback)
       await PersistentLocationService.stopTracking();
       
       // Stop fallback service
@@ -285,39 +304,6 @@ class LocationProvider with ChangeNotifier {
     }
   }
   
-  /// Get address for coordinates (reverse geocoding)
-  Future<Map<String, String?>> getAddressForCoordinates(double latitude, double longitude) async {
-    try {
-      // This is a placeholder implementation
-      // In a real app, you would use a geocoding service like Google Maps or Nominatim
-      return {
-        'address': 'Address not available',
-        'city': 'Unknown',
-        'country': 'Unknown',
-        'postalCode': 'Unknown',
-      };
-    } catch (e) {
-      developer.log('Error getting address for coordinates: $e');
-      return {
-        'address': null,
-        'city': null,
-        'country': null,
-        'postalCode': null,
-      };
-    }
-  }
-  
-  /// Check and prompt for battery optimization
-  Future<void> checkAndPromptBatteryOptimization() async {
-    try {
-      // This would typically check battery optimization settings
-      // and prompt the user to disable them for better background performance
-      developer.log('Battery optimization check requested');
-    } catch (e) {
-      developer.log('Error checking battery optimization: $e');
-    }
-  }
-  
   // Private methods
   
   Future<void> _restoreTrackingState() async {
@@ -330,20 +316,12 @@ class LocationProvider with ChangeNotifier {
         developer.log('Restoring tracking state for user: ${userId.substring(0, 8)}');
         _currentUserId = userId;
         
-        // Check if Life360 service should restore state
-        final shouldRestore = await Life360LocationService.shouldRestoreTracking();
-        if (shouldRestore) {
-          _isTracking = false; // Will be set to true when startTracking is called
-          _userSharingStatus[userId] = false; // Will be updated when tracking starts
-          _status = 'Ready to restore location sharing';
-        } else {
-          // Check if persistent service can restore state
-          final restored = await PersistentLocationService.restoreTrackingState();
-          if (restored) {
-            _isTracking = true;
-            _userSharingStatus[userId] = true;
-            _status = 'Location sharing restored';
-          }
+        // Check if persistent service can restore state
+        final restored = await PersistentLocationService.restoreTrackingState();
+        if (restored) {
+          _isTracking = true;
+          _userSharingStatus[userId] = true;
+          _status = 'Location sharing restored';
         }
       }
     } catch (e) {
@@ -472,12 +450,58 @@ class LocationProvider with ChangeNotifier {
     _currentLocation = location;
     _userLocations[_currentUserId!] = location;
     
+    // Update address from coordinates
+    _updateAddressFromCoordinates(location.latitude, location.longitude);
+    
+    // CRITICAL FIX: Sync location to Firebase Realtime Database
+    _syncLocationToFirebase(location);
+    
+    // Update persistent notification with new location
+    PersistentForegroundNotificationService.updateLocationStatus(
+      location: location,
+      status: 'Location updated',
+      friendsCount: _userLocations.length - 1, // Exclude current user
+      isSharing: true,
+    );
+    
     // Check proximity notifications
     _checkProximityNotifications();
     
     if (_mounted) notifyListeners();
   }
   
+  /// Sync location to Firebase Realtime Database
+  Future<void> _syncLocationToFirebase(LatLng location) async {
+    if (_currentUserId == null) return;
+    
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      
+      // Update Realtime Database with location
+      await _realtimeDb.ref('locations/${_currentUserId!}').set({
+        'lat': location.latitude,
+        'lng': location.longitude,
+        'timestamp': timestamp,
+        'isSharing': true,
+        'accuracy': 10.0, // Default accuracy
+      });
+      
+      // Also update Firestore for persistence
+      await FirebaseFirestore.instance.collection('users').doc(_currentUserId!).update({
+        'location': {
+          'lat': location.latitude,
+          'lng': location.longitude,
+          'timestamp': FieldValue.serverTimestamp(),
+        },
+        'lastLocationUpdate': FieldValue.serverTimestamp(),
+      });
+      
+      developer.log('Location synced to Firebase: ${location.latitude}, ${location.longitude}');
+    } catch (e) {
+      developer.log('Error syncing location to Firebase: $e');
+    }
+  }
+
   void _handleLocationError(String error) {
     developer.log('Location error from persistent service: $error');
     _error = error;
@@ -549,24 +573,11 @@ class LocationProvider with ChangeNotifier {
     if (!_isTracking || _currentUserId == null) return;
     
     try {
-      // Check if Life360 service is still healthy
-      final life360Healthy = Life360LocationService.isTracking;
+      // Check if persistent service is still healthy
+      final isHealthy = PersistentLocationService.isTracking;
       
-      if (!life360Healthy) {
-        developer.log('Life360 service health check failed, attempting to restart');
-        
-        await Life360LocationService.startTracking(
-          userId: _currentUserId!,
-          onLocationUpdate: _handleLocationUpdate,
-          onError: _handleLocationError,
-          onServiceStopped: _handleServiceStopped,
-        );
-      }
-      
-      // Also check persistent service as fallback
-      final persistentHealthy = PersistentLocationService.isTracking;
-      if (!persistentHealthy && !life360Healthy) {
-        developer.log('Both services unhealthy, attempting to restart persistent service');
+      if (!isHealthy) {
+        developer.log('Health check failed, attempting to restart persistent service');
         
         await PersistentLocationService.startTracking(
           userId: _currentUserId!,
@@ -663,6 +674,76 @@ class LocationProvider with ChangeNotifier {
       );
     } catch (e) {
       developer.log('Error checking proximity notifications: $e');
+    }
+  }
+  
+  /// Get address for given coordinates
+  Future<Map<String, String?>> getAddressForCoordinates(double lat, double lng) async {
+    try {
+      List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
+      
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        return {
+          'address': '${place.street}, ${place.subLocality}',
+          'city': place.locality,
+          'postalCode': place.postalCode,
+        };
+      }
+      return {
+        'address': 'Unknown location',
+        'city': null,
+        'postalCode': null,
+      };
+    } catch (e) {
+      developer.log('Error getting address for coordinates: $e');
+      return {
+        'address': 'Address unavailable',
+        'city': null,
+        'postalCode': null,
+      };
+    }
+  }
+  
+  /// Request battery optimization exemption
+  Future<bool> requestBatteryOptimizationExemption() async {
+    try {
+      // This method should be implemented in a battery optimization service
+      // For now, return true as a placeholder
+      developer.log('Battery optimization exemption requested');
+      return true;
+    } catch (e) {
+      developer.log('Error requesting battery optimization exemption: $e');
+      return false;
+    }
+  }
+  
+  /// Open app settings manually
+  Future<void> openAppSettingsManually() async {
+    try {
+      // This method should open app settings
+      developer.log('Opening app settings manually');
+      // Implementation would use app_settings package or platform channels
+    } catch (e) {
+      developer.log('Error opening app settings: $e');
+    }
+  }
+  
+  /// Update current address from coordinates
+  Future<void> _updateAddressFromCoordinates(double lat, double lng) async {
+    try {
+      List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
+      
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        _currentAddress = '${place.street}, ${place.subLocality}';
+        _city = place.locality;
+        _country = place.country;
+        _postalCode = place.postalCode;
+        if (_mounted) notifyListeners();
+      }
+    } catch (e) {
+      developer.log('Error updating address from coordinates: $e');
     }
   }
   

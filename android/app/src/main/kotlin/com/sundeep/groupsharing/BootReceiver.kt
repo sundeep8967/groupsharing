@@ -37,8 +37,11 @@ class BootReceiver : BroadcastReceiver() {
             Log.d(TAG, "Checking location sharing state: enabled=$isLocationSharingEnabled, userId=$userId")
             
             if (isLocationSharingEnabled && !userId.isNullOrEmpty()) {
-                Log.d(TAG, "Restarting background location service for user: ${userId.substring(0, 8)}")
+                Log.d(TAG, "Restarting location services for user: ${userId.substring(0, 8)}")
+                
+                // Start both services for maximum reliability on OnePlus devices
                 BackgroundLocationService.startService(context, userId)
+                PersistentLocationService.startPersistentService(context, userId)
             } else {
                 Log.d(TAG, "Location sharing was not enabled, not starting service")
             }

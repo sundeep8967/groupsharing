@@ -9,6 +9,7 @@ import '../models/emergency_contact.dart';
 import '../models/emergency_event.dart';
 import '../services/notification_service.dart';
 import '../services/fcm_service.dart';
+import 'dart:developer' as developer;
 
 /// Life360-style emergency and SOS service
 class EmergencyService {
@@ -514,7 +515,7 @@ Thank you for your concern.
 
   static void _log(String message) {
     if (kDebugMode) {
-      print('EMERGENCY_SERVICE: $message');
+      developer.log('EMERGENCY_SERVICE: $message');
     }
   }
 }
