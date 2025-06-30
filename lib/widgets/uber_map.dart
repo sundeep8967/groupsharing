@@ -45,7 +45,7 @@ class UberMap extends StatelessWidget {
                     point: latlong.LatLng(userLocation!.latitude, userLocation!.longitude),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.2),
+                        color: Colors.blue.withValues(alpha: 0.2),
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: Colors.blue,

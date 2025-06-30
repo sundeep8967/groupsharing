@@ -397,6 +397,129 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
     );
   }
 
+  /// Gets the friendship status between current user and target user
+  Future<String> _getFriendshipStatus(String targetUserId) async {
+    final currentUser = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
+    if (currentUser == null) return 'none';
+    
+    return await _friendService.getFriendshipStatus(currentUser.uid, targetUserId);
+  }
+
+  /// Builds the appropriate button based on friendship status
+  Widget _buildStatusButton(Map<String, dynamic> user, String status) {
+    switch (status) {
+      case 'friends':
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.green.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.check_circle, color: Colors.green, size: 16),
+              SizedBox(width: 4),
+              Text('Friends', style: TextStyle(color: Colors.green, fontSize: 12)),
+            ],
+          ),
+        );
+      
+      case 'request_sent':
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.orange.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.schedule, color: Colors.orange, size: 16),
+              SizedBox(width: 4),
+              Text('Pending', style: TextStyle(color: Colors.orange, fontSize: 12)),
+            ],
+          ),
+        );
+      
+      case 'request_received':
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.check_circle, color: Colors.green, size: 20),
+              onPressed: () async {
+                // Find the pending request and accept it
+                final currentUser = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
+                if (currentUser == null) return;
+                
+                try {
+                  // Get pending requests to find the request ID
+                  final requests = await _friendService.getPendingRequests(currentUser.uid).first;
+                  final request = requests.where((r) => r.from == user['id']).firstOrNull;
+                  
+                  if (request != null) {
+                    await _acceptRequest(request.id);
+                    setState(() {}); // Refresh the UI
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error: $e')),
+                    );
+                  }
+                }
+              },
+              tooltip: 'Accept',
+            ),
+            IconButton(
+              icon: const Icon(Icons.cancel, color: Colors.red, size: 20),
+              onPressed: () async {
+                // Find the pending request and decline it
+                final currentUser = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
+                if (currentUser == null) return;
+                
+                try {
+                  // Get pending requests to find the request ID
+                  final requests = await _friendService.getPendingRequests(currentUser.uid).first;
+                  final request = requests.where((r) => r.from == user['id']).firstOrNull;
+                  
+                  if (request != null) {
+                    await _declineRequest(request.id);
+                    setState(() {}); // Refresh the UI
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error: $e')),
+                    );
+                  }
+                }
+              },
+              tooltip: 'Decline',
+            ),
+          ],
+        );
+      
+      case 'none':
+      default:
+        return ElevatedButton(
+          onPressed: () => _sendFriendRequest(user['email']?.toString() ?? ''),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Theme.of(context).primaryColor,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          ),
+          child: const Text('Add'),
+        );
+    }
+  }
+
   Widget _buildSearchBar() {
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -462,17 +585,20 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
                 ),
                 title: Text(user['name']?.toString() ?? 'No name'),
                 subtitle: Text(user['email']?.toString() ?? ''),
-                trailing: ElevatedButton(
-                  onPressed: () => _sendFriendRequest(user['email']?.toString() ?? ''),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).primaryColor,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  ),
-                  child: const Text('Add'),
+                trailing: FutureBuilder<String>(
+                  future: _getFriendshipStatus(user['id']),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      );
+                    }
+                    
+                    final status = snapshot.data ?? 'none';
+                    return _buildStatusButton(user, status);
+                  },
                 ),
               );
             },

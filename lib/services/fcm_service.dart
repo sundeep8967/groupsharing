@@ -13,6 +13,7 @@ class FCMService {
   
   static bool _isInitialized = false;
   static String? _currentToken;
+  static Map<String, dynamic>? _pendingNavigationIntent;
   
   /// Initialize FCM service
   static Future<void> initialize() async {
@@ -64,7 +65,41 @@ class FCMService {
   /// Handle notification tap events
   static void _onNotificationTapped(NotificationResponse response) {
     developer.log('FCM Notification tapped: ${response.payload}');
-    // TODO: Navigate to appropriate screen based on notification type
+    
+    // Parse payload to determine navigation
+    if (response.payload != null && response.payload!.isNotEmpty) {
+      try {
+        // Parse the payload as a simple string or JSON
+        final payload = response.payload!;
+        
+        // Handle different notification types
+        if (payload.contains('proximity')) {
+          // Extract friend ID from proximity notification
+          final parts = payload.split('|');
+          if (parts.length >= 2) {
+            final friendId = parts[1];
+            _handleProximityNavigationIntent(friendId);
+          }
+        } else {
+          // Treat as friend ID for proximity notifications
+          _handleProximityNavigationIntent(payload);
+        }
+      } catch (e) {
+        developer.log('Error parsing FCM notification payload: $e');
+      }
+    }
+  }
+  
+  /// Handle navigation intent for proximity notifications
+  static void _handleProximityNavigationIntent(String friendId) {
+    developer.log('Handling proximity navigation for friend: $friendId');
+    
+    // Store navigation intent for the app to handle when it becomes active
+    _pendingNavigationIntent = {
+      'type': 'proximity',
+      'friendId': friendId,
+      'timestamp': DateTime.now(),
+    };
   }
   
   /// Request notification permissions
@@ -229,8 +264,17 @@ class FCMService {
       
       developer.log('Proximity notification: Friend $friendId is ${distance}m away');
       
-      // TODO: Add specific handling for proximity notifications
-      // For example: navigate to map, show friend details, etc.
+      // Store navigation intent for when user taps notification or app becomes active
+      if (friendId != null) {
+        _pendingNavigationIntent = {
+          'type': 'proximity',
+          'friendId': friendId,
+          'distance': distance,
+          'timestamp': DateTime.now(),
+        };
+        
+        developer.log('Stored proximity navigation intent for friend: $friendId');
+      }
       
     } catch (e) {
       developer.log('Error handling proximity notification: $e');
@@ -323,6 +367,13 @@ class FCMService {
     } catch (e) {
       developer.log('Error sending notification to user: $e');
     }
+  }
+
+  /// Get and clear pending navigation intent
+  static Map<String, dynamic>? getPendingNavigationIntent() {
+    final intent = _pendingNavigationIntent;
+    _pendingNavigationIntent = null;
+    return intent;
   }
 }
 

@@ -14,6 +14,12 @@
         ".validate": "newData.isNumber()"
       }
     },
+    "users": {
+      "$userId": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $userId"
+      }
+    },
     "user_status": {
       "$userId": {
         ".read": "auth != null",

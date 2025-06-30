@@ -14,6 +14,9 @@ class NotificationService {
   static final Map<String, DateTime> _lastNotificationTime = {};
   static const Duration _notificationCooldown = Duration(minutes: 10);
   
+  // Store pending navigation for notification taps
+  static Map<String, dynamic>? _pendingNavigation;
+  
   /// Initialize the notification service
   static Future<void> initialize() async {
     if (_isInitialized) return;
@@ -72,7 +75,22 @@ class NotificationService {
   /// Handle notification tap events
   static void _onNotificationTapped(NotificationResponse response) {
     developer.log('Notification tapped: ${response.payload}');
-    // TODO: Navigate to friend details or map when notification is tapped
+    
+    // Handle proximity notification taps
+    if (response.payload != null && response.payload!.isNotEmpty) {
+      final friendId = response.payload!;
+      
+      // Navigate to main screen with map tab focused on friend
+      // This would typically be handled by a navigation service or global navigator
+      developer.log('Should navigate to friend: $friendId');
+      
+      // For now, we'll store the navigation intent for the app to handle
+      _pendingNavigation = {
+        'type': 'friend_proximity',
+        'friendId': friendId,
+        'timestamp': DateTime.now(),
+      };
+    }
   }
   
   /// Show a general notification
@@ -278,6 +296,13 @@ class NotificationService {
   static void clearCooldowns() {
     _lastNotificationTime.clear();
     developer.log('Notification cooldowns cleared');
+  }
+
+  /// Get and clear pending navigation from notification tap
+  static Map<String, dynamic>? getPendingNavigation() {
+    final navigation = _pendingNavigation;
+    _pendingNavigation = null;
+    return navigation;
   }
 
   static void _log(String message) {

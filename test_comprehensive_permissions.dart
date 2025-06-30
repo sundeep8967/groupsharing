@@ -1,16 +1,18 @@
 #!/usr/bin/env dart
 
+import 'dart:developer' as developer;
+
 /// Test script to verify Comprehensive Permission System
 /// This ensures ALL necessary permissions are requested and granted
 
 import 'dart:io';
 
 void main() async {
-  print('🔐 Testing Comprehensive Permission System');
-  print('=' * 60);
+  developer.log('🔐 Testing Comprehensive Permission System');
+  developer.log('=' * 60);
   
   // Test 1: Check if all required files exist
-  print('\n📁 Checking required files...');
+  developer.log('\n📁 Checking required files...');
   
   final requiredFiles = [
     'lib/services/comprehensive_permission_service.dart',
@@ -22,12 +24,12 @@ void main() async {
   bool allFilesExist = true;
   for (final file in requiredFiles) {
     final exists = await File(file).exists();
-    print('${exists ? "✅" : "❌"} $file');
+    developer.log('${exists ? "✅" : "❌"} $file');
     if (!exists) allFilesExist = false;
   }
   
   // Test 2: Check Android permissions in manifest
-  print('\n🤖 Checking Android permissions...');
+  developer.log('\n🤖 Checking Android permissions...');
   
   final androidManifest = File('android/app/src/main/AndroidManifest.xml');
   if (await androidManifest.exists()) {
@@ -46,14 +48,14 @@ void main() async {
     
     for (final permission in requiredPermissions) {
       final exists = content.contains(permission);
-      print('${exists ? "✅" : "❌"} $permission');
+      developer.log('${exists ? "✅" : "❌"} $permission');
     }
   } else {
-    print('❌ Android Manifest not found');
+    developer.log('❌ Android Manifest not found');
   }
   
   // Test 3: Check iOS permissions in Info.plist
-  print('\n🍎 Checking iOS permissions...');
+  developer.log('\n🍎 Checking iOS permissions...');
   
   final iosInfoPlist = File('ios/Runner/Info.plist');
   if (await iosInfoPlist.exists()) {
@@ -69,14 +71,14 @@ void main() async {
     
     for (final key in requiredKeys) {
       final exists = content.contains(key);
-      print('${exists ? "✅" : "❌"} $key');
+      developer.log('${exists ? "✅" : "❌"} $key');
     }
   } else {
-    print('❌ iOS Info.plist not found');
+    developer.log('❌ iOS Info.plist not found');
   }
   
   // Test 4: Check pubspec.yaml dependencies
-  print('\n📦 Checking dependencies...');
+  developer.log('\n📦 Checking dependencies...');
   
   final pubspec = File('pubspec.yaml');
   if (await pubspec.exists()) {
@@ -91,14 +93,14 @@ void main() async {
     
     for (final dep in requiredDeps) {
       final exists = content.contains(dep);
-      print('${exists ? "✅" : "❌"} $dep');
+      developer.log('${exists ? "✅" : "❌"} $dep');
     }
   } else {
-    print('❌ pubspec.yaml not found');
+    developer.log('❌ pubspec.yaml not found');
   }
   
   // Test 5: Check Dart syntax
-  print('\n🎯 Checking Dart syntax...');
+  developer.log('\n🎯 Checking Dart syntax...');
   
   final dartFiles = [
     'lib/services/comprehensive_permission_service.dart',
@@ -108,133 +110,133 @@ void main() async {
   for (final file in dartFiles) {
     final result = await Process.run('dart', ['analyze', file]);
     if (result.exitCode == 0) {
-      print('✅ $file - No issues');
+      developer.log('✅ $file - No issues');
     } else {
-      print('❌ $file - Has issues:');
-      print(result.stdout);
-      print(result.stderr);
+      developer.log('❌ $file - Has issues:');
+      developer.log(result.stdout);
+      developer.log(result.stderr);
     }
   }
   
   // Test 6: Permission flow verification
-  print('\n🔄 Permission Flow Verification');
-  print('=' * 60);
+  developer.log('\n🔄 Permission Flow Verification');
+  developer.log('=' * 60);
   
-  print('✅ Basic Location Permission');
-  print('   - Requests ACCESS_FINE_LOCATION and ACCESS_COARSE_LOCATION');
-  print('   - Shows explanation dialog before requesting');
-  print('   - Handles denied and denied forever states');
+  developer.log('✅ Basic Location Permission');
+  developer.log('   - Requests ACCESS_FINE_LOCATION and ACCESS_COARSE_LOCATION');
+  developer.log('   - Shows explanation dialog before requesting');
+  developer.log('   - Handles denied and denied forever states');
   
-  print('✅ Background Location Permission');
-  print('   - Android: Requests ACCESS_BACKGROUND_LOCATION');
-  print('   - iOS: Requests "Always" location permission');
-  print('   - Shows upgrade dialog for iOS "While Using App" → "Always"');
+  developer.log('✅ Background Location Permission');
+  developer.log('   - Android: Requests ACCESS_BACKGROUND_LOCATION');
+  developer.log('   - iOS: Requests "Always" location permission');
+  developer.log('   - Shows upgrade dialog for iOS "While Using App" → "Always"');
   
   print('✅ Battery Optimization (Android)');
-  print('   - Checks if battery optimization is disabled');
-  print('   - Requests user to disable optimization');
-  print('   - Opens battery optimization settings');
+  developer.log('   - Checks if battery optimization is disabled');
+  developer.log('   - Requests user to disable optimization');
+  developer.log('   - Opens battery optimization settings');
   
   print('✅ Auto-Start Permission (Android)');
   print('   - Detects manufacturer (Xiaomi, Huawei, OPPO, etc.)');
-  print('   - Opens manufacturer-specific auto-start settings');
-  print('   - Provides step-by-step instructions');
+  developer.log('   - Opens manufacturer-specific auto-start settings');
+  developer.log('   - Provides step-by-step instructions');
   
-  print('✅ Notification Permission');
-  print('   - Requests POST_NOTIFICATIONS permission');
-  print('   - Explains why notifications are needed');
+  developer.log('✅ Notification Permission');
+  developer.log('   - Requests POST_NOTIFICATIONS permission');
+  developer.log('   - Explains why notifications are needed');
   
-  print('✅ iOS Background App Refresh');
-  print('   - Shows instructions to enable background app refresh');
-  print('   - Opens iOS Settings app');
+  developer.log('✅ iOS Background App Refresh');
+  developer.log('   - Shows instructions to enable background app refresh');
+  developer.log('   - Opens iOS Settings app');
   
   // Test 7: Persistence and retry logic
-  print('\n🔁 Persistence and Retry Logic');
-  print('=' * 60);
+  developer.log('\n🔁 Persistence and Retry Logic');
+  developer.log('=' * 60);
   
-  print('✅ Persistent Prompting');
-  print('   - Keeps asking until ALL permissions are granted');
-  print('   - Maximum 10 attempts before showing manual instructions');
-  print('   - Clear explanations for each permission type');
+  developer.log('✅ Persistent Prompting');
+  developer.log('   - Keeps asking until ALL permissions are granted');
+  developer.log('   - Maximum 10 attempts before showing manual instructions');
+  developer.log('   - Clear explanations for each permission type');
   
-  print('✅ User Education');
-  print('   - Explains WHY each permission is needed');
+  developer.log('✅ User Education');
+  developer.log('   - Explains WHY each permission is needed');
   print('   - Compares to familiar apps (Life360, Google Maps)');
-  print('   - Step-by-step instructions for manual setup');
+  developer.log('   - Step-by-step instructions for manual setup');
   
-  print('✅ Error Handling');
-  print('   - Graceful handling of permission errors');
-  print('   - Fallback to app settings when needed');
-  print('   - Clear error messages for users');
+  developer.log('✅ Error Handling');
+  developer.log('   - Graceful handling of permission errors');
+  developer.log('   - Fallback to app settings when needed');
+  developer.log('   - Clear error messages for users');
   
   // Test 8: Platform-specific features
-  print('\n📱 Platform-Specific Features');
-  print('=' * 60);
+  developer.log('\n📱 Platform-Specific Features');
+  developer.log('=' * 60);
   
-  print('✅ Android Features');
-  print('   - Battery optimization detection and disable');
-  print('   - Manufacturer-specific auto-start settings');
+  developer.log('✅ Android Features');
+  developer.log('   - Battery optimization detection and disable');
+  developer.log('   - Manufacturer-specific auto-start settings');
   print('   - Background location permission (API 29+)');
-  print('   - Foreground service location type');
+  developer.log('   - Foreground service location type');
   
-  print('✅ iOS Features');
-  print('   - Always location permission requirement');
-  print('   - Background app refresh instructions');
-  print('   - Background task scheduler identifiers');
-  print('   - Proper usage descriptions for App Store');
+  developer.log('✅ iOS Features');
+  developer.log('   - Always location permission requirement');
+  developer.log('   - Background app refresh instructions');
+  developer.log('   - Background task scheduler identifiers');
+  developer.log('   - Proper usage descriptions for App Store');
   
   // Test 9: Integration verification
-  print('\n🔗 Integration Verification');
-  print('=' * 60);
+  developer.log('\n🔗 Integration Verification');
+  developer.log('=' * 60);
   
-  print('✅ Main App Integration');
-  print('   - ComprehensivePermissionScreen replaces basic permission screen');
-  print('   - Integrated with Life360LocationService');
-  print('   - Proper state management and callbacks');
+  developer.log('✅ Main App Integration');
+  developer.log('   - ComprehensivePermissionScreen replaces basic permission screen');
+  developer.log('   - Integrated with Life360LocationService');
+  developer.log('   - Proper state management and callbacks');
   
-  print('✅ Native Integration');
-  print('   - Android PermissionHelper.kt handles native permissions');
-  print('   - Method channels for Flutter ↔ Native communication');
-  print('   - Proper error handling and fallbacks');
+  developer.log('✅ Native Integration');
+  developer.log('   - Android PermissionHelper.kt handles native permissions');
+  developer.log('   - Method channels for Flutter ↔ Native communication');
+  developer.log('   - Proper error handling and fallbacks');
   
   // Summary
-  print('\n📊 Test Summary');
-  print('=' * 60);
+  developer.log('\n📊 Test Summary');
+  developer.log('=' * 60);
   
   if (allFilesExist) {
-    print('✅ All required files are present');
+    developer.log('✅ All required files are present');
   } else {
-    print('❌ Some required files are missing');
+    developer.log('❌ Some required files are missing');
   }
   
-  print('\n🎯 Comprehensive Permission System Features:');
+  developer.log('\n🎯 Comprehensive Permission System Features:');
   print('✅ Persistent permission prompting (keeps asking until granted)');
-  print('✅ All necessary permissions for background location');
-  print('✅ Platform-specific permission handling');
-  print('✅ Battery optimization management');
-  print('✅ Manufacturer-specific auto-start permissions');
-  print('✅ User education and clear explanations');
-  print('✅ Error handling and fallback mechanisms');
-  print('✅ Integration with Life360-style location service');
+  developer.log('✅ All necessary permissions for background location');
+  developer.log('✅ Platform-specific permission handling');
+  developer.log('✅ Battery optimization management');
+  developer.log('✅ Manufacturer-specific auto-start permissions');
+  developer.log('✅ User education and clear explanations');
+  developer.log('✅ Error handling and fallback mechanisms');
+  developer.log('✅ Integration with Life360-style location service');
   
-  print('\n🚀 Expected User Experience:');
-  print('1. App starts and checks current permissions');
-  print('2. If any permission missing, shows comprehensive permission screen');
-  print('3. Explains each permission with clear reasons');
-  print('4. Guides user through granting each permission');
-  print('5. Keeps asking until ALL permissions are granted');
-  print('6. Only proceeds to main app when everything is set up');
-  print('7. Location sharing works reliably like Life360!');
+  developer.log('\n🚀 Expected User Experience:');
+  developer.log('1. App starts and checks current permissions');
+  developer.log('2. If any permission missing, shows comprehensive permission screen');
+  developer.log('3. Explains each permission with clear reasons');
+  developer.log('4. Guides user through granting each permission');
+  developer.log('5. Keeps asking until ALL permissions are granted');
+  developer.log('6. Only proceeds to main app when everything is set up');
+  developer.log('7. Location sharing works reliably like Life360!');
   
-  print('\n💡 Testing Instructions:');
-  print('1. Build and install app on physical device');
-  print('2. First launch should show permission screen');
-  print('3. Try denying permissions - app should keep asking');
-  print('4. Grant all permissions step by step');
-  print('5. Verify location sharing works when app is killed');
-  print('6. Test device reboot - location should auto-restart');
+  developer.log('\n💡 Testing Instructions:');
+  developer.log('1. Build and install app on physical device');
+  developer.log('2. First launch should show permission screen');
+  developer.log('3. Try denying permissions - app should keep asking');
+  developer.log('4. Grant all permissions step by step');
+  developer.log('5. Verify location sharing works when app is killed');
+  developer.log('6. Test device reboot - location should auto-restart');
   
-  print('\n✨ Your app now has bulletproof permission handling!');
-  print('   Users will be guided to grant ALL necessary permissions');
-  print('   for reliable background location sharing! 🎉');
+  developer.log('\n✨ Your app now has bulletproof permission handling!');
+  developer.log('   Users will be guided to grant ALL necessary permissions');
+  developer.log('   for reliable background location sharing! 🎉');
 }

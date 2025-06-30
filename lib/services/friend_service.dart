@@ -3,6 +3,7 @@ import '../models/user_model.dart'; // Assuming UserModel will be needed
 import '../models/friendship_model.dart'; // Assuming FriendshipModel will be needed
 import '../models/friend_relationship.dart'; // New model for friend relationships
 import 'firebase_service.dart'; // For accessing Firestore collections
+import 'dart:developer' as developer;
 
 class FriendService {
   final FirebaseFirestore _firestore = FirebaseService.firestore;
@@ -10,7 +11,7 @@ class FriendService {
   final CollectionReference<Map<String, dynamic>> _friendshipsCollection = FirebaseService.friendshipsCollection;
 
   Future<UserModel?> findUserByFriendCode(String friendCode) async {
-    print('[FriendService] findUserByFriendCode attempting to find code: $friendCode');
+    developer.log('[FriendService] findUserByFriendCode attempting to find code: $friendCode');
     try {
       final querySnapshot = await _usersCollection
           .where('friendCode', isEqualTo: friendCode)
@@ -19,20 +20,20 @@ class FriendService {
 
       if (querySnapshot.docs.isNotEmpty) {
         final userDoc = querySnapshot.docs.first;
-        print('[FriendService] User found by friend code: ${userDoc.id}');
+        developer.log('[FriendService] User found by friend code: ${userDoc.id}');
         return UserModel.fromMap(userDoc.data() as Map<String, dynamic>, userDoc.id);
       } else {
-        print('[FriendService] No user found with friend code: $friendCode');
+        developer.log('[FriendService] No user found with friend code: $friendCode');
         return null;
       }
     } catch (e) {
-      print('[FriendService] Error finding user by friend code: $e');
+      developer.log('[FriendService] Error finding user by friend code: $e');
       return null;
     }
   }
 
   Future<UserModel?> findUserByEmail(String email) async {
-    print('[FriendService] findUserByEmail attempting to find email: $email');
+    developer.log('[FriendService] findUserByEmail attempting to find email: $email');
     // Normalize email to lowercase to ensure case-insensitive search,
     // assuming emails are stored consistently (e.g., lowercase).
     // If emails in Firestore might have mixed case, this search will be case-sensitive.
@@ -48,24 +49,24 @@ class FriendService {
 
       if (querySnapshot.docs.isNotEmpty) {
         final userDoc = querySnapshot.docs.first;
-        print('[FriendService] User found by email: ${userDoc.id}');
+        developer.log('[FriendService] User found by email: ${userDoc.id}');
         return UserModel.fromMap(userDoc.data() as Map<String, dynamic>, userDoc.id);
       } else {
         print('[FriendService] No user found with email: $email (queried as $normalizedEmail)');
         return null;
       }
     } catch (e) {
-      print('[FriendService] Error finding user by email: $e');
+      developer.log('[FriendService] Error finding user by email: $e');
       return null;
     }
   }
 
   // Method to send a friend request
   Future<void> sendFriendRequest(String currentUserUID, String targetUserUID) async {
-    print('[FriendService] Attempting to send friend request from $currentUserUID to $targetUserUID');
+    developer.log('[FriendService] Attempting to send friend request from $currentUserUID to $targetUserUID');
 
     if (currentUserUID == targetUserUID) {
-      print('[FriendService] User cannot send a friend request to themselves.');
+      developer.log('[FriendService] User cannot send a friend request to themselves.');
       // Optionally, throw an exception or return a status
       return;
     }
@@ -85,15 +86,47 @@ class FriendService {
           .limit(1)
           .get();
 
-      if (existingRequestQuery1.docs.isNotEmpty || existingRequestQuery2.docs.isNotEmpty) {
-        // You might want to check the status of the existing request.
-        // For example, if a request was 'rejected', you might allow sending a new one.
-        // Or if it's 'pending' or 'accepted', you prevent a new one.
-        // For now, let's assume any existing record means no new request.
-        print('[FriendService] A friendship record already exists between $currentUserUID and $targetUserUID.');
-        // Optionally, throw an exception or return a status indicating this.
-        // For example: throw Exception('Friendship request already exists or has been processed.');
-        return;
+      // Check if there's an existing relationship
+      if (existingRequestQuery1.docs.isNotEmpty) {
+        final existingDoc = existingRequestQuery1.docs.first;
+        final existingData = existingDoc.data() as Map<String, dynamic>;
+        final status = existingData['status'] as String;
+        
+        if (status == FriendshipStatus.pending.toString()) {
+          developer.log('[FriendService] A pending request already exists from $currentUserUID to $targetUserUID.');
+          throw Exception('Friend request already sent and is pending.');
+        } else if (status == FriendshipStatus.accepted.toString()) {
+          developer.log('[FriendService] Users are already friends.');
+          throw Exception('You are already friends with this user.');
+        } else if (status == FriendshipStatus.rejected.toString()) {
+          // Allow resending after rejection - update the existing document
+          developer.log('[FriendService] Updating rejected request to pending.');
+          await _friendshipsCollection.doc(existingDoc.id).update({
+            'status': FriendshipStatus.pending.toString(),
+            'timestamp': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          developer.log('[FriendService] Friend request resent successfully from $currentUserUID to $targetUserUID.');
+          return;
+        }
+      }
+      
+      if (existingRequestQuery2.docs.isNotEmpty) {
+        final existingDoc = existingRequestQuery2.docs.first;
+        final existingData = existingDoc.data() as Map<String, dynamic>;
+        final status = existingData['status'] as String;
+        
+        if (status == FriendshipStatus.pending.toString()) {
+          // There's a pending request from target to current user - auto accept it
+          developer.log('[FriendService] Found pending request from target user. Auto-accepting...');
+          await acceptFriendRequest(existingDoc.id);
+          developer.log('[FriendService] Friend request auto-accepted.');
+          return;
+        } else if (status == FriendshipStatus.accepted.toString()) {
+          developer.log('[FriendService] Users are already friends.');
+          throw Exception('You are already friends with this user.');
+        }
+        // If rejected, we can still send a new request in the opposite direction
       }
 
       // If no existing request, create a new one
@@ -107,10 +140,10 @@ class FriendService {
       };
 
       await _friendshipsCollection.add(newRequestData);
-      print('[FriendService] Friend request sent successfully from $currentUserUID to $targetUserUID.');
+      developer.log('[FriendService] Friend request sent successfully from $currentUserUID to $targetUserUID.');
 
     } catch (e) {
-      print('[FriendService] Error sending friend request: $e');
+      developer.log('[FriendService] Error sending friend request: $e');
       // Re-throw the exception to be handled by the caller if needed
       throw Exception('Failed to send friend request: ${e.toString()}');
     }
@@ -118,7 +151,7 @@ class FriendService {
 
   // Method to accept a friend request
   Future<void> acceptFriendRequest(String requestID) async {
-    print('[FriendService] Attempting to accept friend request: $requestID');
+    developer.log('[FriendService] Attempting to accept friend request: $requestID');
     try {
       final requestDocRef = _friendshipsCollection.doc(requestID);
       final requestSnapshot = await requestDocRef.get();
@@ -155,17 +188,17 @@ class FriendService {
         'updatedAt': FieldValue.serverTimestamp(), // Also update user's updatedAt
       });
 
-      print('[FriendService] Friend request $requestID accepted successfully.');
+      developer.log('[FriendService] Friend request $requestID accepted successfully.');
 
     } catch (e) {
-      print('[FriendService] Error accepting friend request $requestID: $e');
+      developer.log('[FriendService] Error accepting friend request $requestID: $e');
       throw Exception('Failed to accept friend request: ${e.toString()}');
     }
   }
 
   // Method to reject a friend request
   Future<void> rejectFriendRequest(String requestID) async {
-    print('[FriendService] Attempting to reject friend request: $requestID');
+    developer.log('[FriendService] Attempting to reject friend request: $requestID');
     try {
       final requestDocRef = _friendshipsCollection.doc(requestID);
 
@@ -173,16 +206,16 @@ class FriendService {
         'status': FriendshipStatus.rejected.toString(),
         'updatedAt': FieldValue.serverTimestamp(), // Ensured updatedAt is set
       });
-      print('[FriendService] Friend request $requestID rejected successfully.');
+      developer.log('[FriendService] Friend request $requestID rejected successfully.');
     } catch (e) {
-      print('[FriendService] Error rejecting friend request $requestID: $e');
+      developer.log('[FriendService] Error rejecting friend request $requestID: $e');
       throw Exception('Failed to reject friend request: ${e.toString()}');
     }
   }
 
   // Method to get pending friend requests for the current user
   Stream<List<FriendshipModel>> getPendingRequests(String currentUserUID) {
-    print('[FriendService] getPendingRequests called for user: $currentUserUID');
+    developer.log('[FriendService] getPendingRequests called for user: $currentUserUID');
     try {
       return _friendshipsCollection
           .where('to', isEqualTo: currentUserUID) // Changed: friendId -> to
@@ -206,34 +239,34 @@ class FriendService {
         
         return docs;
       }).handleError((error) {
-        print('[FriendService] Error in getPendingRequests stream: $error');
+        developer.log('[FriendService] Error in getPendingRequests stream: $error');
         // Optionally, return an empty list or a stream with an error
         return []; // Or throw error;
       });
     } catch (e) {
-      print('[FriendService] Exception caught while setting up getPendingRequests stream: $e');
+      developer.log('[FriendService] Exception caught while setting up getPendingRequests stream: $e');
       return Stream.value([]); // Return empty stream on initial setup error
     }
   }
 
   // Method to get a list of accepted friends for the current user
   Stream<List<UserModel>> getFriends(String currentUserUID) {
-    print('[FriendService] getFriends called for user: $currentUserUID');
+    developer.log('[FriendService] getFriends called for user: $currentUserUID');
     try {
       return _usersCollection.doc(currentUserUID).snapshots().asyncMap((userDocSnapshot) async {
         if (!userDocSnapshot.exists || userDocSnapshot.data() == null) {
-          print('[FriendService] Current user document not found or data is null for $currentUserUID');
+          developer.log('[FriendService] Current user document not found or data is null for $currentUserUID');
           return <UserModel>[];
         }
 
         final List<String> friendUIDs = List<String>.from(userDocSnapshot.data()!['friends'] ?? []);
 
         if (friendUIDs.isEmpty) {
-          print('[FriendService] User $currentUserUID has no friends in their list.');
+          developer.log('[FriendService] User $currentUserUID has no friends in their list.');
           return <UserModel>[];
         }
 
-        print('[FriendService] User $currentUserUID friend UIDs: $friendUIDs');
+        developer.log('[FriendService] User $currentUserUID friend UIDs: $friendUIDs');
 
         final List<UserModel> friendsList = [];
         for (String uid in friendUIDs) {
@@ -241,24 +274,24 @@ class FriendService {
           if (friendDocSnapshot.exists && friendDocSnapshot.data() != null) {
             friendsList.add(UserModel.fromMap(friendDocSnapshot.data()!, friendDocSnapshot.id));
           } else {
-            print('[FriendService] Friend document not found for UID: $uid');
+            developer.log('[FriendService] Friend document not found for UID: $uid');
             // Optionally add a placeholder or skip if a friend's doc is missing
           }
         }
-        print('[FriendService] Fetched ${friendsList.length} friend models for user $currentUserUID');
+        developer.log('[FriendService] Fetched ${friendsList.length} friend models for user $currentUserUID');
         return friendsList;
       }).handleError((error) {
-        print('[FriendService] Error in getFriends stream for user $currentUserUID: $error');
+        developer.log('[FriendService] Error in getFriends stream for user $currentUserUID: $error');
         return <UserModel>[]; // Return an empty list on error
       });
     } catch (e) {
-      print('[FriendService] Exception caught while setting up getFriends stream for $currentUserUID: $e');
+      developer.log('[FriendService] Exception caught while setting up getFriends stream for $currentUserUID: $e');
       return Stream.value([]); // Return empty stream on initial setup error
     }
   }
 
   Future<UserModel?> getUserDetails(String uid) async {
-    print('[FriendService] getUserDetails called for UID: $uid');
+    developer.log('[FriendService] getUserDetails called for UID: $uid');
     try {
       final docSnapshot = await _usersCollection.doc(uid).get();
       if (docSnapshot.exists) {
@@ -266,7 +299,7 @@ class FriendService {
       }
       return null;
     } catch (e) {
-      print('[FriendService] Error fetching user details for $uid: $e');
+      developer.log('[FriendService] Error fetching user details for $uid: $e');
       return null;
     }
   }
@@ -297,17 +330,17 @@ class FriendService {
         
         return docs;
       }).handleError((error) {
-        print('[FriendService] Error in getSentRequests stream: $error');
+        developer.log('[FriendService] Error in getSentRequests stream: $error');
         return [];
       });
     } catch (e) {
-      print('[FriendService] Exception caught while setting up getSentRequests stream: $e');
+      developer.log('[FriendService] Exception caught while setting up getSentRequests stream: $e');
       return Stream.value([]);
     }
   }
 
   Future<void> cancelSentRequest(String requestID, String currentUserUID) async {
-    print('[FriendService] Attempting to cancel sent request: $requestID by user: $currentUserUID');
+    developer.log('[FriendService] Attempting to cancel sent request: $requestID by user: $currentUserUID');
     try {
       final requestDocRef = _friendshipsCollection.doc(requestID);
       final requestSnapshot = await requestDocRef.get();
@@ -323,15 +356,15 @@ class FriendService {
 
       // Verify that the current user is the sender of this request
       if (requestData['from'] != currentUserUID) {
-        print('[FriendService] User $currentUserUID is not authorized to cancel request $requestID.');
+        developer.log('[FriendService] User $currentUserUID is not authorized to cancel request $requestID.');
         throw Exception('You are not authorized to cancel this request.');
       }
 
       await requestDocRef.delete();
-      print('[FriendService] Sent request $requestID cancelled successfully by $currentUserUID.');
+      developer.log('[FriendService] Sent request $requestID cancelled successfully by $currentUserUID.');
 
     } catch (e) {
-      print('[FriendService] Error cancelling sent request $requestID: $e');
+      developer.log('[FriendService] Error cancelling sent request $requestID: $e');
       // Re-throw to be handled by the UI
       throw Exception('Failed to cancel sent request: ${e.toString()}');
     }
@@ -339,7 +372,7 @@ class FriendService {
 
   /// Get friends with their categories
   Stream<List<FriendRelationship>> getFriendsWithCategories(String currentUserUID) {
-    print('[FriendService] getFriendsWithCategories called for user: $currentUserUID');
+    developer.log('[FriendService] getFriendsWithCategories called for user: $currentUserUID');
     try {
       return _friendshipsCollection
           .where('status', isEqualTo: FriendshipStatus.accepted.toString())
@@ -375,36 +408,36 @@ class FriendService {
           }
         }
         
-        print('[FriendService] Fetched ${friendRelationships.length} friend relationships for user $currentUserUID');
+        developer.log('[FriendService] Fetched ${friendRelationships.length} friend relationships for user $currentUserUID');
         return friendRelationships;
       }).handleError((error) {
-        print('[FriendService] Error in getFriendsWithCategories stream for user $currentUserUID: $error');
+        developer.log('[FriendService] Error in getFriendsWithCategories stream for user $currentUserUID: $error');
         return <FriendRelationship>[]; // Return an empty list on error
       });
     } catch (e) {
-      print('[FriendService] Exception caught while setting up getFriendsWithCategories stream for $currentUserUID: $e');
+      developer.log('[FriendService] Exception caught while setting up getFriendsWithCategories stream for $currentUserUID: $e');
       return Stream.value([]); // Return empty stream on initial setup error
     }
   }
 
   /// Update friendship category
   Future<void> updateFriendshipCategory(String friendshipId, FriendshipCategory newCategory) async {
-    print('[FriendService] Attempting to update friendship category: $friendshipId to $newCategory');
+    developer.log('[FriendService] Attempting to update friendship category: $friendshipId to $newCategory');
     try {
       await _friendshipsCollection.doc(friendshipId).update({
         'category': newCategory.toString(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
-      print('[FriendService] Friendship category updated successfully for $friendshipId');
+      developer.log('[FriendService] Friendship category updated successfully for $friendshipId');
     } catch (e) {
-      print('[FriendService] Error updating friendship category: $e');
+      developer.log('[FriendService] Error updating friendship category: $e');
       throw Exception('Failed to update friendship category: ${e.toString()}');
     }
   }
 
   /// Get friendship details between two users
   Future<FriendshipModel?> getFriendshipBetweenUsers(String user1Id, String user2Id) async {
-    print('[FriendService] Getting friendship between $user1Id and $user2Id');
+    developer.log('[FriendService] Getting friendship between $user1Id and $user2Id');
     try {
       // Check both directions since friendship can be initiated by either user
       final query1 = await _friendshipsCollection
@@ -431,8 +464,83 @@ class FriendService {
       
       return null;
     } catch (e) {
-      print('[FriendService] Error getting friendship between users: $e');
+      developer.log('[FriendService] Error getting friendship between users: $e');
       return null;
+    }
+  }
+
+  /// Remove/Unfriend a user
+  Future<void> removeFriend(String currentUserUID, String friendUID) async {
+    developer.log('[FriendService] Attempting to remove friend: $currentUserUID removing $friendUID');
+    try {
+      // Find the friendship document between the two users
+      final friendship = await getFriendshipBetweenUsers(currentUserUID, friendUID);
+      
+      if (friendship == null) {
+        throw Exception('No friendship found between users.');
+      }
+      
+      // Delete the friendship document
+      await _friendshipsCollection.doc(friendship.id).delete();
+      
+      // Remove from each other's friends lists in user documents
+      final currentUserDocRef = _usersCollection.doc(currentUserUID);
+      await currentUserDocRef.update({
+        'friends': FieldValue.arrayRemove([friendUID]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      
+      final friendUserDocRef = _usersCollection.doc(friendUID);
+      await friendUserDocRef.update({
+        'friends': FieldValue.arrayRemove([currentUserUID]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      
+      developer.log('[FriendService] Successfully removed friendship between $currentUserUID and $friendUID');
+      
+    } catch (e) {
+      developer.log('[FriendService] Error removing friend: $e');
+      throw Exception('Failed to remove friend: ${e.toString()}');
+    }
+  }
+
+  /// Check friendship status between two users
+  Future<String> getFriendshipStatus(String currentUserUID, String targetUserUID) async {
+    developer.log('[FriendService] Checking friendship status between $currentUserUID and $targetUserUID');
+    try {
+      // Check if they are already friends
+      final friendship = await getFriendshipBetweenUsers(currentUserUID, targetUserUID);
+      if (friendship != null) {
+        return 'friends';
+      }
+      
+      // Check for pending requests in both directions
+      final pendingQuery1 = await _friendshipsCollection
+          .where('from', isEqualTo: currentUserUID)
+          .where('to', isEqualTo: targetUserUID)
+          .where('status', isEqualTo: FriendshipStatus.pending.toString())
+          .limit(1)
+          .get();
+      
+      if (pendingQuery1.docs.isNotEmpty) {
+        return 'request_sent';
+      }
+      
+      final pendingQuery2 = await _friendshipsCollection
+          .where('from', isEqualTo: targetUserUID)
+          .where('to', isEqualTo: currentUserUID)
+          .where('status', isEqualTo: FriendshipStatus.pending.toString())
+          .limit(1)
+          .get();
+      
+      if (pendingQuery2.docs.isNotEmpty) {
+        return 'request_received';
+      }
+      
+      return 'none';
+    } catch (e) {
+      developer.log('[FriendService] Error checking friendship status: $e');
+      return 'error';
     }
   }
 }

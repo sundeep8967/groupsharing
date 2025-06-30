@@ -387,7 +387,7 @@ class _PermissionScreenState extends State<PermissionScreen>
             width: isSmallScreen ? 32 : 40,
             height: isSmallScreen ? 32 : 40,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(icon, color: color, size: isSmallScreen ? 16 : 20),

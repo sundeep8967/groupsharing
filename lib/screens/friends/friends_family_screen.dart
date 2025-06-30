@@ -10,7 +10,9 @@ import '../../models/friendship_model.dart';
 import '../../providers/location_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'friend_details_screen.dart';
+import 'add_friends_screen.dart';
 import '../../services/presence_service.dart';
+import 'dart:developer' as developer;
 
 class FriendsFamilyScreen extends StatefulWidget {
   const FriendsFamilyScreen({super.key});
@@ -46,8 +48,9 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     if (user == null) {
       return const Center(child: Text('Please log in.'));
     }
-    return Column(
-      children: [
+    return Scaffold(
+      body: Column(
+        children: [
         // Custom App Bar
         Container(
           width: double.infinity,
@@ -61,7 +64,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
             color: Theme.of(context).scaffoldBackgroundColor,
             border: Border(
               bottom: BorderSide(
-                color: Colors.grey.withOpacity(0.2),
+                color: Colors.grey.withValues(alpha: 0.2),
                 width: 0.5,
               ),
             ),
@@ -93,10 +96,10 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
                       width: 120,
                       height: 36,
                       decoration: BoxDecoration(
-                        color: Colors.grey.withOpacity(0.1),
+                        color: Colors.grey.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: Colors.grey.withOpacity(0.3),
+                          color: Colors.grey.withValues(alpha: 0.3),
                           width: 1,
                         ),
                       ),
@@ -121,7 +124,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
         Container(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.grey.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
@@ -162,6 +165,20 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
           ),
         ),
       ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => const AddFriendsScreen(),
+            ),
+          );
+        },
+        icon: const Icon(Icons.person_add),
+        label: const Text('Add Friends'),
+        backgroundColor: Theme.of(context).primaryColor,
+        foregroundColor: Colors.white,
+      ),
     );
   }
 
@@ -387,7 +404,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
-            color: Theme.of(context).primaryColor.withOpacity(0.1),
+            color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
@@ -410,10 +427,10 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
       width: 120,
       height: 36,
       decoration: BoxDecoration(
-        color: isOn ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+        color: isOn ? Colors.green.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isOn ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.3),
+          color: isOn ? Colors.green.withValues(alpha: 0.3) : Colors.grey.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -468,7 +485,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
                   value: isOn,
                   onChanged: (value) => _handleToggle(value, locationProvider, user), // Keep interactive
                   activeColor: Colors.green,
-                  activeTrackColor: Colors.green.withOpacity(0.3),
+                  activeTrackColor: Colors.green.withValues(alpha: 0.3),
                   inactiveThumbColor: Colors.grey[400],
                   inactiveTrackColor: Colors.grey[300],
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -484,17 +501,17 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
   bool _isToggling = false; // Add state to prevent multiple toggles
   
   void _handleToggle(bool value, LocationProvider locationProvider, firebase_auth.User user) async {
-    print('Toggle pressed: $value, current tracking: ${locationProvider.isTracking}');
+    developer.log('Toggle pressed: $value, current tracking: ${locationProvider.isTracking}');
     
     // Prevent multiple simultaneous toggles
     if (_isToggling) {
-      print('Toggle already in progress, ignoring');
+      developer.log('Toggle already in progress, ignoring');
       return;
     }
     
     // Prevent double-toggling
     if (value == locationProvider.isTracking) {
-      print('Toggle value same as current state, ignoring');
+      developer.log('Toggle value same as current state, ignoring');
       return;
     }
     
@@ -511,7 +528,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     
     try {
       if (value) {
-        print('Starting location tracking for user: ${user.uid}');
+        developer.log('Starting location tracking for user: ${user.uid}');
         await locationProvider.startTracking(user.uid);
         
         // Quick verification with shorter delay for better UX
@@ -521,7 +538,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
           _showSnackBar('Location ON', Colors.green, Icons.check_circle);
         }
       } else {
-        print('Stopping location tracking');
+        developer.log('Stopping location tracking');
         await locationProvider.stopTracking();
         
         // Quick verification with shorter delay for better UX
@@ -532,7 +549,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
         }
       }
     } catch (e) {
-      print('Error toggling location sharing: $e');
+      developer.log('Error toggling location sharing: $e');
       if (mounted) {
         _showSnackBar('Error: ${e.toString()}', Colors.red, Icons.error);
       }
@@ -596,10 +613,10 @@ class _FriendListItem extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.withOpacity(0.15)),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -621,7 +638,7 @@ class _FriendListItem extends StatelessWidget {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: Colors.pink.withOpacity(0.3),
+                          color: Colors.pink.withValues(alpha: 0.3),
                           width: 2,
                         ),
                       ),
@@ -643,14 +660,19 @@ class _FriendListItem extends StatelessWidget {
                     Positioned(
                       bottom: 0,
                       right: 0,
-                      child: Container(
-                        width: 14,
-                        height: 14,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _isOnline(friend) ? Colors.green : Colors.grey[400],
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
+                      child: Consumer<LocationProvider>(
+                        builder: (context, locationProvider, child) {
+                          final isOnline = locationProvider.isUserSharingLocation(friend.id);
+                          return Container(
+                            width: 14,
+                            height: 14,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isOnline ? Colors.green : Colors.grey[400],
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -683,13 +705,13 @@ class _FriendListItem extends StatelessWidget {
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
                               color: friendRelationship.category == FriendshipCategory.family 
-                                  ? Colors.purple.withOpacity(0.1)
-                                  : Colors.blue.withOpacity(0.1),
+                                  ? Colors.purple.withValues(alpha: 0.1)
+                                  : Colors.blue.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(
                                 color: friendRelationship.category == FriendshipCategory.family 
-                                    ? Colors.purple.withOpacity(0.3)
-                                    : Colors.blue.withOpacity(0.3),
+                                    ? Colors.purple.withValues(alpha: 0.3)
+                                    : Colors.blue.withValues(alpha: 0.3),
                                 width: 1,
                               ),
                             ),
@@ -722,30 +744,35 @@ class _FriendListItem extends StatelessWidget {
                           const SizedBox(width: 8),
                           // Last seen with timestamp
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _getLastSeenText(friend, context),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey[600],
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                // Show additional timestamp for offline friends
-                                if (!_isOnline(friend) && friend.lastSeen != null)
-                                  Text(
-                                    _getDetailedTimestamp(friend.lastSeen!),
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: Colors.grey[500],
-                                      fontStyle: FontStyle.italic,
+                            child: Consumer<LocationProvider>(
+                              builder: (context, locationProvider, child) {
+                                final isOnline = locationProvider.isUserSharingLocation(friend.id);
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _getLastSeenText(friend, context),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey[600],
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                              ],
+                                    // Show additional timestamp for offline friends
+                                    if (!isOnline && friend.lastSeen != null)
+                                      Text(
+                                        _getDetailedTimestamp(friend.lastSeen!),
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.grey[500],
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                  ],
+                                );
+                              },
                             ),
                           ),
                         ],
@@ -766,15 +793,6 @@ class _FriendListItem extends StatelessWidget {
     );
   }
 
-  bool _isOnline(UserModel friend) {
-    // Use the new presence service to determine online status based on location sharing
-    final userData = {
-      'locationSharingEnabled': friend.locationSharingEnabled,
-      'lastLocationUpdate': friend.lastSeen?.millisecondsSinceEpoch,
-      'lastSeen': friend.lastSeen?.millisecondsSinceEpoch,
-    };
-    return PresenceService.isUserOnline(userData);
-  }
 
   String _getLastSeenText(UserModel friend, BuildContext context) {
     // Use the new presence service to format last seen text based on location sharing
@@ -873,13 +891,13 @@ class _CompactLocationStatusIndicator extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
             color: isSharing 
-                ? Colors.green.withOpacity(0.1) 
-                : Colors.grey.withOpacity(0.1),
+                ? Colors.green.withValues(alpha: 0.1) 
+                : Colors.grey.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
               color: isSharing 
-                  ? Colors.green.withOpacity(0.3) 
-                  : Colors.grey.withOpacity(0.3),
+                  ? Colors.green.withValues(alpha: 0.3) 
+                  : Colors.grey.withValues(alpha: 0.3),
               width: 1,
             ),
           ),
@@ -924,13 +942,13 @@ class _LocationStatusIndicator extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
             color: isSharing 
-                ? Colors.green.withOpacity(0.1) 
-                : Colors.grey.withOpacity(0.1),
+                ? Colors.green.withValues(alpha: 0.1) 
+                : Colors.grey.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: isSharing 
-                  ? Colors.green.withOpacity(0.3) 
-                  : Colors.grey.withOpacity(0.3),
+                  ? Colors.green.withValues(alpha: 0.3) 
+                  : Colors.grey.withValues(alpha: 0.3),
               width: 1,
             ),
           ),
@@ -1012,7 +1030,7 @@ class _CompactGoogleMapsButton extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF4285F4).withOpacity(0.3),
+                    color: const Color(0xFF4285F4).withValues(alpha: 0.3),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -1030,7 +1048,7 @@ class _CompactGoogleMapsButton extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: Colors.grey.withOpacity(0.15),
+              color: Colors.grey.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
@@ -1091,7 +1109,7 @@ class _GoogleMapsButton extends StatelessWidget {
               width: 32,
               height: 32,
               decoration: BoxDecoration(
-                color: Colors.grey.withOpacity(0.2),
+                color: Colors.grey.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Icon(
@@ -1130,19 +1148,19 @@ class _GoogleMapsButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF4285F4).withOpacity(0.4),
+            color: const Color(0xFF4285F4).withValues(alpha: 0.4),
             blurRadius: 12,
             offset: const Offset(0, 4),
             spreadRadius: 1,
           ),
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
         ],
         border: Border.all(
-          color: Colors.white.withOpacity(0.2),
+          color: Colors.white.withValues(alpha: 0.2),
           width: 1,
         ),
       ),
@@ -1239,7 +1257,7 @@ class _CompactFriendAddressSectionState extends State<_CompactFriendAddressSecti
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: Colors.grey.withOpacity(0.1),
+          color: Colors.grey.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
@@ -1264,7 +1282,7 @@ class _CompactFriendAddressSectionState extends State<_CompactFriendAddressSecti
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: Colors.blue.withOpacity(0.1),
+          color: Colors.blue.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
@@ -1294,7 +1312,7 @@ class _CompactFriendAddressSectionState extends State<_CompactFriendAddressSecti
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: Colors.orange.withOpacity(0.1),
+          color: Colors.orange.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
@@ -1333,8 +1351,8 @@ class _CompactFriendAddressSectionState extends State<_CompactFriendAddressSecti
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: isCurrentLocation && isOnline 
-            ? Colors.green.withOpacity(0.1)
-            : Colors.orange.withOpacity(0.1),
+            ? Colors.green.withValues(alpha: 0.1)
+            : Colors.orange.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -1381,86 +1399,4 @@ class _CompactFriendAddressSectionState extends State<_CompactFriendAddressSecti
   }
 }
 
-// Keep the existing address section for backward compatibility
-class _FriendAddressSection extends StatefulWidget {
-  final UserModel friend;
-  const _FriendAddressSection({required this.friend});
-
-  @override
-  State<_FriendAddressSection> createState() => _FriendAddressSectionState();
-}
-
-class _FriendAddressSectionState extends State<_FriendAddressSection> {
-  Map<String, String?>? _address;
-  bool _loading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadAddress();
-  }
-
-  void _loadAddress() async {
-    final state = context.findAncestorStateOfType<_FriendsFamilyScreenState>();
-    final friend = widget.friend;
-    if (friend.lastLocation == null) return;
-    final cache = state?._addressCache;
-    final cacheKey = friend.id;
-    if (cache != null && cache.containsKey(cacheKey)) {
-      setState(() {
-        _address = cache[cacheKey];
-      });
-      return;
-    }
-    setState(() => _loading = true);
-    final addr = await Provider.of<LocationProvider>(context, listen: false)
-        .getAddressForCoordinates(friend.lastLocation!.latitude, friend.lastLocation!.longitude);
-    if (mounted) {
-      setState(() {
-        _address = addr;
-        _loading = false;
-      });
-      if (cache != null) cache[cacheKey] = addr;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final friend = widget.friend;
-    if (friend.lastLocation == null) {
-      return const Padding(
-        padding: EdgeInsets.only(top: 4.0),
-        child: Text('No address available', style: TextStyle(fontSize: 12, color: Colors.grey)),
-      );
-    }
-    if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.only(top: 4.0),
-        child: SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-      );
-    }
-    if (_address == null || _address!.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.only(top: 4.0),
-        child: Text('No address available', style: TextStyle(fontSize: 12, color: Colors.grey)),
-      );
-    }
-    final address = _address!['address'] ?? '';
-    final city = _address!['city'] ?? '';
-    final pin = _address!['postalCode'] ?? '';
-    return Padding(
-      padding: const EdgeInsets.only(top: 4.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (address.isNotEmpty) Text(address, style: TextStyle(color: Theme.of(context).textTheme.bodySmall?.color?.withOpacity(0.7))),
-          if (city.isNotEmpty || pin.isNotEmpty)
-            Text(
-              [if (pin.isNotEmpty) pin, if (city.isNotEmpty) city].join(' • '),
-              style: TextStyle(color: Theme.of(context).textTheme.bodySmall?.color?.withOpacity(0.7)),
-            ),
-        ],
-      ),
-    );
-  }
-}
+// Compact address section for friend list items

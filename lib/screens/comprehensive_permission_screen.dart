@@ -144,7 +144,7 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
     _progressController.forward();
     
     try {
-      final granted = await ComprehensivePermissionService.requestAllPermissions(context);
+      final granted = await ComprehensivePermissionService.requestAllPermissions();
       
       if (granted) {
         setState(() {
@@ -226,7 +226,7 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
             borderRadius: BorderRadius.circular(40),
             boxShadow: [
               BoxShadow(
-                color: Colors.blue.withOpacity(0.3),
+                color: Colors.blue.withValues(alpha: 0.3),
                 blurRadius: 20,
                 offset: const Offset(0, 10),
               ),
@@ -340,12 +340,12 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isGranted ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.2),
+          color: isGranted ? Colors.green.withValues(alpha: 0.3) : Colors.grey.withValues(alpha: 0.2),
           width: 2,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -357,7 +357,7 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: isGranted ? Colors.green.withOpacity(0.1) : step['color'].withOpacity(0.1),
+              color: isGranted ? Colors.green.withValues(alpha: 0.1) : step['color'].withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(24),
             ),
             child: Icon(
@@ -395,7 +395,7 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.1),
+                color: Colors.green.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Text(
@@ -426,7 +426,7 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
           borderRadius: BorderRadius.circular(28),
           boxShadow: [
             BoxShadow(
-              color: Colors.green.withOpacity(0.3),
+              color: Colors.green.withValues(alpha: 0.3),
               blurRadius: 20,
               offset: const Offset(0, 10),
             ),
@@ -473,7 +473,7 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
           borderRadius: BorderRadius.circular(28),
           boxShadow: [
             BoxShadow(
-              color: (_isRequestingPermissions ? Colors.grey : Colors.blue).withOpacity(0.3),
+              color: (_isRequestingPermissions ? Colors.grey : Colors.blue).withValues(alpha: 0.3),
               blurRadius: 20,
               offset: const Offset(0, 10),
             ),
@@ -530,10 +530,10 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
         key: ValueKey(_currentStep),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: _allPermissionsGranted ? Colors.green.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
+          color: _allPermissionsGranted ? Colors.green.withValues(alpha: 0.1) : Colors.blue.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: _allPermissionsGranted ? Colors.green.withOpacity(0.3) : Colors.blue.withOpacity(0.3),
+            color: _allPermissionsGranted ? Colors.green.withValues(alpha: 0.3) : Colors.blue.withValues(alpha: 0.3),
           ),
         ),
         child: Row(

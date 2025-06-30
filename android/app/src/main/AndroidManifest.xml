@@ -68,10 +68,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
         
-        <!-- Ola Maps API Key -->
-        <meta-data
-            android:name="com.olacabs.maps.API_KEY"
-            android:value="luLVcAt5WZIwiejddpHrGmuT6JeDhdbNkDA0ZeCK" />
             
         <!-- Google Play Services Version -->
         <meta-data
@@ -118,6 +114,36 @@
             android:foregroundServiceType="location"
             android:stopWithTask="false"
             android:process=":location_service" />
+            
+        <!-- Ultra-Persistent Location Service for OnePlus devices -->
+        <service
+            android:name=".PersistentLocationService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location"
+            android:stopWithTask="false"
+            android:process=":persistent_location"
+            android:directBootAware="true" />
+            
+        <!-- Bulletproof Location Service -->
+        <service
+            android:name=".BulletproofLocationService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location"
+            android:stopWithTask="false"
+            android:process=":bulletproof_location"
+            android:directBootAware="true" />
+            
+        <!-- Persistent Foreground Notification Service -->
+        <service
+            android:name=".PersistentForegroundNotificationService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location"
+            android:stopWithTask="false"
+            android:process=":persistent_notification"
+            android:directBootAware="true" />
         
         <!-- Native Driving Detection Service -->
         <service
