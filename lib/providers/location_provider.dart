@@ -9,6 +9,8 @@ import '../services/persistent_location_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
 import '../services/proximity_service.dart';
+import '../services/native_background_location_service.dart';
+import '../services/universal_location_integration_service.dart';
 import '../utils/performance_optimizer.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -138,20 +140,32 @@ class LocationProvider with ChangeNotifier {
       // Save tracking state
       await _saveTrackingState(userId, true);
       
-      // Update Firebase status immediately
-      await _updateLocationSharingStatus(userId, true);
+      // CRITICAL: Use Universal Location Integration Service
+      // This ensures ALL authenticated users get the same working functionality
+      // that was previously only available to test users
+      UniversalLocationIntegrationService.onLocationUpdate = _handleLocationUpdate;
+      UniversalLocationIntegrationService.onError = _handleLocationError;
+      UniversalLocationIntegrationService.onServiceStopped = _handleServiceStopped;
       
-      // Start persistent location service
-      final persistentStarted = await PersistentLocationService.startTracking(
-        userId: userId,
-        onLocationUpdate: _handleLocationUpdate,
-        onError: _handleLocationError,
-        onServiceStopped: _handleServiceStopped,
-      );
+      final universalStarted = await UniversalLocationIntegrationService.startLocationTrackingForUser(userId);
       
-      if (!persistentStarted) {
-        developer.log('Persistent service failed to start, using fallback');
-        await _startFallbackTracking(userId);
+      if (!universalStarted) {
+        developer.log('Universal service failed, falling back to legacy services');
+        
+        // Fallback to legacy implementation
+        await _updateLocationSharingStatus(userId, true);
+        
+        final nativeStarted = await _startNativeBackgroundService(userId);
+        final persistentStarted = await PersistentLocationService.startTracking(
+          userId: userId,
+          onLocationUpdate: _handleLocationUpdate,
+          onError: _handleLocationError,
+          onServiceStopped: _handleServiceStopped,
+        );
+        
+        if (!persistentStarted && !nativeStarted) {
+          await _startFallbackTracking(userId);
+        }
       }
       
       // Start sync monitoring
@@ -183,16 +197,18 @@ class LocationProvider with ChangeNotifier {
       _status = 'Stopping location tracking...';
       if (_mounted) notifyListeners();
       
-      // Update Firebase status immediately
+      // Update user sharing status
       if (_currentUserId != null) {
-        await _updateLocationSharingStatus(_currentUserId!, false);
         _userSharingStatus[_currentUserId!] = false;
       }
       
-      // Stop persistent location service
-      await PersistentLocationService.stopTracking();
+      // CRITICAL: Stop Universal Location Integration Service
+      // This properly stops all background services for the user
+      await UniversalLocationIntegrationService.stopLocationTracking();
       
-      // Stop fallback service
+      // Fallback: Stop legacy services if universal service fails
+      await _stopNativeBackgroundService();
+      await PersistentLocationService.stopTracking();
       await _stopFallbackTracking();
       
       // Stop sync monitoring
@@ -510,6 +526,64 @@ class LocationProvider with ChangeNotifier {
     }
   }
   
+  /// Start native background location service for persistent notifications
+  Future<bool> _startNativeBackgroundService(String userId) async {
+    try {
+      developer.log('Starting native background location service for user: ${userId.substring(0, 8)}');
+      
+      // Initialize the native service if not already done
+      final initialized = await NativeBackgroundLocationService.initialize();
+      if (!initialized) {
+        developer.log('Failed to initialize native background location service');
+        return false;
+      }
+      
+      // Set up callbacks for location updates
+      NativeBackgroundLocationService.onLocationUpdate = (LatLng location) {
+        developer.log('Native service location update: ${location.latitude}, ${location.longitude}');
+        _handleLocationUpdate(location);
+      };
+      
+      NativeBackgroundLocationService.onError = (String error) {
+        developer.log('Native service error: $error');
+        _handleLocationError(error);
+      };
+      
+      NativeBackgroundLocationService.onServiceStopped = () {
+        developer.log('Native service stopped unexpectedly');
+        _handleServiceStopped();
+      };
+      
+      // Start the native service
+      final started = await NativeBackgroundLocationService.startService(userId);
+      if (started) {
+        developer.log('Native background location service started successfully');
+        return true;
+      } else {
+        developer.log('Failed to start native background location service');
+        return false;
+      }
+    } catch (e) {
+      developer.log('Error starting native background location service: $e');
+      return false;
+    }
+  }
+  
+  /// Stop native background location service
+  Future<void> _stopNativeBackgroundService() async {
+    try {
+      developer.log('Stopping native background location service');
+      await NativeBackgroundLocationService.stopService();
+      
+      // Clear callbacks
+      NativeBackgroundLocationService.onLocationUpdate = null;
+      NativeBackgroundLocationService.onError = null;
+      NativeBackgroundLocationService.onServiceStopped = null;
+    } catch (e) {
+      developer.log('Error stopping native background location service: $e');
+    }
+  }
+  
   void _startHealthMonitoring() {
     _healthCheckTimer?.cancel();
     
@@ -527,12 +601,32 @@ class LocationProvider with ChangeNotifier {
     if (!_isTracking || _currentUserId == null) return;
     
     try {
-      // Check if persistent service is still healthy
-      final isHealthy = PersistentLocationService.isTracking;
+      // Check if native service is still healthy
+      final nativeHealthy = await NativeBackgroundLocationService.isServiceHealthy();
       
-      if (!isHealthy) {
-        developer.log('Health check failed, attempting to restart persistent service');
+      // Check if persistent service is still healthy
+      final persistentHealthy = PersistentLocationService.isTracking;
+      
+      if (!nativeHealthy && !persistentHealthy) {
+        developer.log('Health check failed for both services, attempting to restart');
         
+        // Try to restart native service first
+        final nativeRestarted = await _startNativeBackgroundService(_currentUserId!);
+        
+        // If native fails, try persistent service
+        if (!nativeRestarted) {
+          await PersistentLocationService.startTracking(
+            userId: _currentUserId!,
+            onLocationUpdate: _handleLocationUpdate,
+            onError: _handleLocationError,
+            onServiceStopped: _handleServiceStopped,
+          );
+        }
+      } else if (!nativeHealthy) {
+        developer.log('Native service unhealthy, attempting to restart');
+        await _startNativeBackgroundService(_currentUserId!);
+      } else if (!persistentHealthy) {
+        developer.log('Persistent service unhealthy, attempting to restart');
         await PersistentLocationService.startTracking(
           userId: _currentUserId!,
           onLocationUpdate: _handleLocationUpdate,
@@ -642,6 +736,28 @@ class LocationProvider with ChangeNotifier {
       developer.log('Forcing immediate location update...');
       _status = 'Getting current location...';
       if (_mounted) notifyListeners();
+
+      // CRITICAL: Try to trigger Universal Location Integration Service "Update Now" first
+      // This provides the same functionality as the notification button for ALL users
+      final universalTriggered = await UniversalLocationIntegrationService.triggerUpdateNow();
+      if (universalTriggered) {
+        developer.log('Universal service update triggered successfully');
+        _status = 'Location updated via universal service';
+        if (_mounted) notifyListeners();
+        return true;
+      }
+
+      // Fallback to native service if universal service fails
+      final nativeTriggered = await NativeBackgroundLocationService.triggerUpdateNow();
+      if (nativeTriggered) {
+        developer.log('Native service update triggered successfully');
+        _status = 'Location updated via native service';
+        if (_mounted) notifyListeners();
+        return true;
+      }
+
+      // Fallback to manual location update if both services fail
+      developer.log('Both universal and native services failed, using manual update');
 
       // Check location service status
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
