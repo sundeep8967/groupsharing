@@ -6,7 +6,6 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'services/fcm_service.dart';
-import 'package:groupsharing/services/deep_link_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/location_provider.dart';
 import 'screens/auth/login_screen.dart';
@@ -43,8 +42,7 @@ void main() async {
   // Initialize FCM service
   await FCMService.initialize();
   
-  // Initialize deep links
-  DeepLinkService.initDeepLinks();
+  // Deep links removed - were not being used by any UI elements
   
   // Initialize Persistent Foreground Notification Service
   debugPrint('=== INITIALIZING PERSISTENT FOREGROUND NOTIFICATION SERVICE ===');
