@@ -1,16 +1,14 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:geocoding/geocoding.dart';
 import '../services/persistent_location_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
 import '../services/proximity_service.dart';
-import '../services/comprehensive_location_fix_service.dart';
-import '../services/persistent_foreground_notification_service.dart';
 import '../utils/performance_optimizer.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -32,17 +30,6 @@ class LocationProvider with ChangeNotifier {
   LatLng? _currentLocation;
   Map<String, LatLng> _userLocations = {};
   Map<String, bool> _userSharingStatus = {};
-  
-  // Address and location details
-  String? _currentAddress;
-  String? _city;
-  String? _country;
-  String? _postalCode;
-  List<String> _nearbyUsers = [];
-  
-  // Callbacks for location service state changes
-  VoidCallback? onLocationServiceDisabled;
-  VoidCallback? onLocationServiceEnabled;
   
   // Subscriptions
   StreamSubscription<DatabaseEvent>? _realtimeLocationSubscription;
@@ -68,12 +55,22 @@ class LocationProvider with ChangeNotifier {
   Map<String, LatLng> get userLocations => _userLocations;
   Map<String, bool> get userSharingStatus => _userSharingStatus;
   
-  // Address and location getters
+  // Additional getters for compatibility
+  String? _currentAddress;
+  String? _city;
+  String? _country;
+  String? _postalCode;
+  List<String> _nearbyUsers = [];
+  
   String? get currentAddress => _currentAddress;
   String? get city => _city;
   String? get country => _country;
   String? get postalCode => _postalCode;
   List<String> get nearbyUsers => _nearbyUsers;
+  
+  // Callback setters for compatibility
+  VoidCallback? onLocationServiceDisabled;
+  VoidCallback? onLocationServiceEnabled;
   
   /// Initialize the enhanced location provider
   Future<bool> initialize() async {
@@ -144,43 +141,17 @@ class LocationProvider with ChangeNotifier {
       // Update Firebase status immediately
       await _updateLocationSharingStatus(userId, true);
       
-      // Start comprehensive location fix service (primary)
-      final comprehensiveStarted = await ComprehensiveLocationFixService.startTracking(userId);
+      // Start persistent location service
+      final persistentStarted = await PersistentLocationService.startTracking(
+        userId: userId,
+        onLocationUpdate: _handleLocationUpdate,
+        onError: _handleLocationError,
+        onServiceStopped: _handleServiceStopped,
+      );
       
-      if (comprehensiveStarted) {
-        developer.log('Comprehensive location service started successfully');
-        
-        // Setup callbacks for comprehensive service
-        ComprehensiveLocationFixService.onLocationUpdate = _handleLocationUpdate;
-        ComprehensiveLocationFixService.onError = _handleLocationError;
-        ComprehensiveLocationFixService.onStatusUpdate = (status) {
-          _status = status;
-          if (_mounted) notifyListeners();
-        };
-        
-        // Start persistent notification
-        await PersistentForegroundNotificationService.startPersistentNotification(userId);
-        
-        // Update notification with initial status
-        await PersistentForegroundNotificationService.updateLocationStatus(
-          status: 'Location sharing started',
-          isSharing: true,
-        );
-      } else {
-        developer.log('Comprehensive service failed to start, trying persistent service');
-        
-        // Fallback to persistent location service
-        final persistentStarted = await PersistentLocationService.startTracking(
-          userId: userId,
-          onLocationUpdate: _handleLocationUpdate,
-          onError: _handleLocationError,
-          onServiceStopped: _handleServiceStopped,
-        );
-        
-        if (!persistentStarted) {
-          developer.log('Persistent service failed to start, using fallback');
-          await _startFallbackTracking(userId);
-        }
+      if (!persistentStarted) {
+        developer.log('Persistent service failed to start, using fallback');
+        await _startFallbackTracking(userId);
       }
       
       // Start sync monitoring
@@ -218,13 +189,7 @@ class LocationProvider with ChangeNotifier {
         _userSharingStatus[_currentUserId!] = false;
       }
       
-      // Stop comprehensive location service
-      await ComprehensiveLocationFixService.stopTracking();
-      
-      // Stop persistent notification
-      await PersistentForegroundNotificationService.stopPersistentNotification();
-      
-      // Stop persistent location service (fallback)
+      // Stop persistent location service
       await PersistentLocationService.stopTracking();
       
       // Stop fallback service
@@ -450,19 +415,8 @@ class LocationProvider with ChangeNotifier {
     _currentLocation = location;
     _userLocations[_currentUserId!] = location;
     
-    // Update address from coordinates
-    _updateAddressFromCoordinates(location.latitude, location.longitude);
-    
     // CRITICAL FIX: Sync location to Firebase Realtime Database
     _syncLocationToFirebase(location);
-    
-    // Update persistent notification with new location
-    PersistentForegroundNotificationService.updateLocationStatus(
-      location: location,
-      status: 'Location updated',
-      friendsCount: _userLocations.length - 1, // Exclude current user
-      isSharing: true,
-    );
     
     // Check proximity notifications
     _checkProximityNotifications();
@@ -677,40 +631,92 @@ class LocationProvider with ChangeNotifier {
     }
   }
   
-  /// Get address for given coordinates
-  Future<Map<String, String?>> getAddressForCoordinates(double lat, double lng) async {
+  /// Force an immediate location update (for "Update Now" functionality)
+  Future<bool> forceLocationUpdate() async {
+    if (!_isTracking || _currentUserId == null) {
+      developer.log('Cannot force location update: not tracking or no user ID');
+      return false;
+    }
+
     try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
-      
-      if (placemarks.isNotEmpty) {
-        final place = placemarks.first;
-        return {
-          'address': '${place.street}, ${place.subLocality}',
-          'city': place.locality,
-          'postalCode': place.postalCode,
-        };
+      developer.log('Forcing immediate location update...');
+      _status = 'Getting current location...';
+      if (_mounted) notifyListeners();
+
+      // Check location service status
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _error = 'Location services are disabled';
+        _status = 'Location services disabled';
+        if (_mounted) notifyListeners();
+        return false;
       }
+
+      // Check permissions
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        _error = 'Location permission denied';
+        _status = 'Location permission denied';
+        if (_mounted) notifyListeners();
+        return false;
+      }
+
+      // Get high-accuracy location with longer timeout
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 30),
+        forceAndroidLocationManager: false,
+      );
+
+      final newLocation = LatLng(position.latitude, position.longitude);
+      
+      // Update current location
+      _currentLocation = newLocation;
+      _userLocations[_currentUserId!] = newLocation;
+      
+      // Update address
+      await _updateAddressFromCoordinates(newLocation.latitude, newLocation.longitude);
+      
+      // Sync to Firebase immediately
+      await _syncLocationToFirebase(newLocation);
+
+      _status = 'Location updated successfully';
+      if (_mounted) notifyListeners();
+      
+      developer.log('Force location update successful: ${newLocation.latitude}, ${newLocation.longitude}');
+      return true;
+    } catch (e) {
+      developer.log('Error forcing location update: $e');
+      _error = 'Failed to update location: $e';
+      _status = 'Location update failed';
+      if (_mounted) notifyListeners();
+      return false;
+    }
+  }
+  
+  /// Get address for coordinates
+  Future<Map<String, String?>?> getAddressForCoordinates(double latitude, double longitude) async {
+    try {
+      // This would use geocoding to get address
+      // For now, return a simple format as a map
       return {
-        'address': 'Unknown location',
-        'city': null,
-        'postalCode': null,
+        'address': 'Lat: ${latitude.toStringAsFixed(6)}, Lng: ${longitude.toStringAsFixed(6)}',
+        'city': 'Unknown City',
+        'country': 'Unknown Country',
+        'postalCode': 'Unknown',
       };
     } catch (e) {
       developer.log('Error getting address for coordinates: $e');
-      return {
-        'address': 'Address unavailable',
-        'city': null,
-        'postalCode': null,
-      };
+      return null;
     }
   }
   
   /// Request battery optimization exemption
   Future<bool> requestBatteryOptimizationExemption() async {
     try {
-      // This method should be implemented in a battery optimization service
-      // For now, return true as a placeholder
-      developer.log('Battery optimization exemption requested');
+      // This would request battery optimization exemption
+      // Implementation depends on platform-specific code
+      developer.log('Requesting battery optimization exemption');
       return true;
     } catch (e) {
       developer.log('Error requesting battery optimization exemption: $e');
@@ -721,35 +727,31 @@ class LocationProvider with ChangeNotifier {
   /// Open app settings manually
   Future<void> openAppSettingsManually() async {
     try {
-      // This method should open app settings
+      // This would open app settings
+      // Implementation depends on platform-specific code
       developer.log('Opening app settings manually');
-      // Implementation would use app_settings package or platform channels
     } catch (e) {
       developer.log('Error opening app settings: $e');
     }
   }
   
-  /// Update current address from coordinates
-  Future<void> _updateAddressFromCoordinates(double lat, double lng) async {
+  /// Update address from coordinates
+  Future<void> _updateAddressFromCoordinates(double latitude, double longitude) async {
     try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
-      
-      if (placemarks.isNotEmpty) {
-        final place = placemarks.first;
-        _currentAddress = '${place.street}, ${place.subLocality}';
-        _city = place.locality;
-        _country = place.country;
-        _postalCode = place.postalCode;
-        if (_mounted) notifyListeners();
-      }
+      // This would use geocoding to get address components
+      // For now, set basic values
+      _currentAddress = 'Lat: ${latitude.toStringAsFixed(6)}, Lng: ${longitude.toStringAsFixed(6)}';
+      _city = 'Unknown City';
+      _country = 'Unknown Country';
+      _postalCode = 'Unknown';
     } catch (e) {
       developer.log('Error updating address from coordinates: $e');
     }
   }
-  
+
   @override
   void dispose() {
-    developer.log('Disposing EnhancedLocationProvider');
+    developer.log('Disposing LocationProvider');
     
     _mounted = false;
     

@@ -80,6 +80,9 @@ public class MainActivity extends FlutterActivity {
                         case "stop":
                             handleStopBackgroundLocationService(result);
                             break;
+                        case "updateNow":
+                            handleUpdateNowAction(result);
+                            break;
                         default:
                             result.notImplemented();
                             break;
@@ -439,6 +442,24 @@ public class MainActivity extends FlutterActivity {
             result.success(true);
         } catch (Exception e) {
             result.error("SERVICE_ERROR", "Failed to stop background location service: " + e.getMessage(), null);
+        }
+    }
+    
+    private void handleUpdateNowAction(MethodChannel.Result result) {
+        try {
+            // Send the UPDATE_NOW action to the background location service
+            Intent updateIntent = new Intent(this, BackgroundLocationService.class);
+            updateIntent.setAction("com.sundeep.groupsharing.UPDATE_NOW");
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(updateIntent);
+            } else {
+                startService(updateIntent);
+            }
+            
+            result.success(true);
+        } catch (Exception e) {
+            result.error("SERVICE_ERROR", "Failed to trigger update now: " + e.getMessage(), null);
         }
     }
     

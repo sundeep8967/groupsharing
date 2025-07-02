@@ -9,7 +9,6 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../providers/auth_provider.dart' as app_auth;
 import '../../services/firebase_service.dart';
-import '../../services/deep_link_service.dart';
 import '../../models/saved_place.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/services.dart';
@@ -531,16 +530,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _shareProfile() async {
-    final user = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
-    if (user == null) return;
-
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-    final friendCode = userDoc.data()?['friendCode'] ?? '';
-    final profileLink = DeepLinkService.generateProfileLink(user.uid);
-    final message = 'Check out my profile on GroupSharing!\nFriend code: $friendCode\n$profileLink';
-    await Share.share(message);
-  }
+  // _shareProfile function removed - was not connected to any UI elements
 
   void _showImagePickerOptions() {
     showModalBottomSheet(

@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:groupsharing/widgets/smooth_modern_map.dart';
 import 'package:groupsharing/models/map_marker.dart';
-import 'package:groupsharing/services/deep_link_service.dart';
 import '../../providers/auth_provider.dart' as app_auth;
 import '../../providers/location_provider.dart';
 import '../friends/friends_family_screen.dart';
@@ -27,6 +26,7 @@ import '../../models/driving_session.dart';
 import '../../models/smart_place.dart';
 import '../../models/emergency_event.dart';
 import '../../widgets/emergency_fix_button.dart';
+import '../debug/native_location_test_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -362,6 +362,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               const ProfileScreen(),
               const NotificationScreen(),
             ],
+          ),
+          floatingActionButton: FloatingActionButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => NativeLocationTestScreen(),
+                ),
+              );
+            },
+            backgroundColor: Colors.green,
+            child: const Icon(Icons.location_on, color: Colors.white),
+            tooltip: 'Test Native Location Service',
           ),
           bottomNavigationBar: NavigationBar(
             selectedIndex: _selectedIndex,
@@ -1144,60 +1156,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _shareProfileLink(String userId) async {
-    try {
-      debugPrint('=== Starting share process ===');
-      debugPrint('User ID: $userId');
-      
-      // Generate the deep link
-      debugPrint('Generating deep link...');
-      final deepLink = DeepLinkService.generateProfileLink(userId);
-      debugPrint('Generated deep link: $deepLink');
-      
-      // Create the share message
-      final message = 'Add me as a friend on GroupSharing! $deepLink';
-      debugPrint('Message to share: $message');
-      
-      // Show a snackbar to indicate sharing is starting
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Preparing to share...')),
-        );
-      }
-      
-      // Share the message
-      debugPrint('Calling Share.share()...');
-      await Share.share(
-        message,
-        subject: 'Add me on GroupSharing',
-      );
-      debugPrint('Share dialog should be visible now');
-      
-      // Show success message
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Share dialog opened')),
-        );
-      }
-      
-    } catch (e, stackTrace) {
-      debugPrint('=== Error in _shareProfileLink ===');
-      debugPrint('Error: $e');
-      debugPrint('Stack trace: $stackTrace');
-      
-      // Show error message to the user
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to share: ${e.toString()}'),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    } finally {
-      debugPrint('=== Share process completed ===');
-    }
-  }
+  // _shareProfileLink function removed - was not connected to any UI elements
 
   /// Build Life360 status bar showing driving or place information
   Widget _buildLife360StatusBar() {

@@ -423,76 +423,105 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
   Widget _buildLocationToggle(LocationProvider locationProvider, firebase_auth.User user) {
     final isOn = locationProvider.isTracking;
     
-    return Container(
-      width: 120,
-      height: 36,
-      decoration: BoxDecoration(
-        color: isOn ? Colors.green.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isOn ? Colors.green.withValues(alpha: 0.3) : Colors.grey.withValues(alpha: 0.3),
-          width: 1,
+    return GestureDetector(
+      onTap: () {
+        if (isOn && !_isToggling) {
+          // If already ON, trigger manual update
+          _handleManualUpdate(locationProvider);
+        } else if (!isOn && !_isToggling) {
+          // If OFF, turn ON
+          _handleToggle(true, locationProvider, user);
+        }
+      },
+      onLongPress: () {
+        if (isOn && !_isToggling) {
+          // Long press when ON - turn OFF
+          _handleToggle(false, locationProvider, user);
+        }
+      },
+      child: Container(
+        width: 120,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isOn ? Colors.green.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isOn ? Colors.green.withValues(alpha: 0.3) : Colors.grey.withValues(alpha: 0.3),
+            width: 1,
+          ),
         ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Icon with fixed size - subtle animation when toggling
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: _isToggling 
-                  ? Icon(
-                      Icons.sync,
-                      key: const ValueKey('loading'),
-                      size: 12,
-                      color: isOn ? Colors.green : Colors.blue,
-                    )
-                  : Icon(
-                      isOn ? Icons.location_on : Icons.location_off,
-                      key: ValueKey(isOn ? 'on' : 'off'),
-                      size: 12,
-                      color: isOn ? Colors.green : Colors.grey[600],
-                    ),
-            ),
-            const SizedBox(width: 4),
-            // Text with flexible sizing but constrained
-            Flexible(
-              child: AnimatedSwitcher(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Icon with fixed size - subtle animation when toggling
+              AnimatedSwitcher(
                 duration: const Duration(milliseconds: 200),
-                child: Text(
-                  _isToggling ? '...' : (isOn ? 'ON' : 'OFF'),
-                  key: ValueKey(_isToggling ? 'loading' : (isOn ? 'on' : 'off')),
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: _isToggling 
-                        ? (isOn ? Colors.green : Colors.blue)
-                        : (isOn ? Colors.green : Colors.grey[600]),
+                child: _isToggling 
+                    ? Icon(
+                        Icons.sync,
+                        key: const ValueKey('loading'),
+                        size: 12,
+                        color: isOn ? Colors.green : Colors.blue,
+                      )
+                    : Icon(
+                        isOn ? Icons.location_on : Icons.location_off,
+                        key: ValueKey(isOn ? 'on' : 'off'),
+                        size: 12,
+                        color: isOn ? Colors.green : Colors.grey[600],
+                      ),
+              ),
+              const SizedBox(width: 4),
+              // Text with flexible sizing but constrained
+              Flexible(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: Text(
+                    _isToggling 
+                        ? '...' 
+                        : (isOn ? 'ON' : 'OFF'),
+                    key: ValueKey(_isToggling ? 'loading' : (isOn ? 'on' : 'off')),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: _isToggling 
+                          ? (isOn ? Colors.green : Colors.blue)
+                          : (isOn ? Colors.green : Colors.grey[600]),
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ),
-            const SizedBox(width: 4),
-            // Switch with fixed size
-            SizedBox(
-              width: 32,
-              child: Transform.scale(
-                scale: 0.6,
-                child: Switch(
-                  value: isOn,
-                  onChanged: (value) => _handleToggle(value, locationProvider, user), // Keep interactive
-                  activeColor: Colors.green,
-                  activeTrackColor: Colors.green.withValues(alpha: 0.3),
-                  inactiveThumbColor: Colors.grey[400],
-                  inactiveTrackColor: Colors.grey[300],
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              const SizedBox(width: 4),
+              // Switch with fixed size - now just for visual indication
+              SizedBox(
+                width: 32,
+                child: Transform.scale(
+                  scale: 0.6,
+                  child: Switch(
+                    value: isOn,
+                    onChanged: null, // Disable direct interaction - use container tap instead
+                    activeColor: Colors.green,
+                    activeTrackColor: Colors.green.withValues(alpha: 0.3),
+                    inactiveThumbColor: Colors.grey[400],
+                    inactiveTrackColor: Colors.grey[300],
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                 ),
               ),
-            ),
-          ],
+              // Add a small "Update" indicator when ON
+              if (isOn && !_isToggling)
+                Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: Icon(
+                    Icons.refresh,
+                    size: 8,
+                    color: Colors.green.withValues(alpha: 0.7),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -552,6 +581,39 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
       developer.log('Error toggling location sharing: $e');
       if (mounted) {
         _showSnackBar('Error: ${e.toString()}', Colors.red, Icons.error);
+      }
+    } finally {
+      _isToggling = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// Handle manual location update when user taps the toggle while already ON
+  void _handleManualUpdate(LocationProvider locationProvider) async {
+    if (_isToggling) return;
+    
+    _isToggling = true;
+    if (mounted) setState(() {});
+    
+    _showSnackBar('Updating location...', Colors.blue, Icons.location_searching);
+    
+    try {
+      // Try to force a location update
+      final success = await locationProvider.forceLocationUpdate();
+      
+      if (success) {
+        if (mounted) {
+          _showSnackBar('Location updated successfully!', Colors.green, Icons.check_circle);
+        }
+      } else {
+        if (mounted) {
+          _showSnackBar('Failed to update location', Colors.orange, Icons.warning);
+        }
+      }
+    } catch (e) {
+      developer.log('Error during manual location update: $e');
+      if (mounted) {
+        _showSnackBar('Update failed: ${e.toString()}', Colors.red, Icons.error);
       }
     } finally {
       _isToggling = false;
@@ -1237,7 +1299,7 @@ class _CompactFriendAddressSectionState extends State<_CompactFriendAddressSecti
         _address = addr;
         _loading = false;
       });
-      if (cache != null) cache[cacheKey] = addr;
+      if (cache != null && addr != null) cache[cacheKey] = addr;
     }
   }
 

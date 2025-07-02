@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.*
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.FirebaseApp
 import android.util.Log
 import java.util.*
 
@@ -25,6 +26,10 @@ class BackgroundLocationService : Service() {
         private const val FASTEST_LOCATION_INTERVAL = 5000L // 5 seconds
         private const val LOCATION_DISTANCE_THRESHOLD = 10f // 10 meters
         const val EXTRA_USER_ID = "userId"
+        
+        // Action constants for notification buttons
+        const val ACTION_UPDATE_NOW = "com.sundeep.groupsharing.UPDATE_NOW"
+        const val ACTION_STOP_SHARING = "com.sundeep.groupsharing.STOP_SHARING"
         
         fun startService(context: Context, userId: String) {
             val intent = Intent(context, BackgroundLocationService::class.java)
@@ -82,16 +87,83 @@ class BackgroundLocationService : Service() {
         super.onCreate()
         Log.d(TAG, "Background location service created")
         
+        // Initialize Firebase if not already initialized
+        initializeFirebase()
+        
         createNotificationChannel()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         createLocationRequest()
         createLocationCallback()
     }
     
+    private fun initializeFirebase() {
+        try {
+            // Initialize Firebase if not already done
+            if (FirebaseApp.getApps(this).isEmpty()) {
+                FirebaseApp.initializeApp(this)
+                Log.d(TAG, "Firebase initialized in background service")
+            } else {
+                Log.d(TAG, "Firebase already initialized")
+            }
+            
+            // Check Firebase Auth state and try to restore authentication
+            val currentUser = FirebaseAuth.getInstance().currentUser
+            if (currentUser != null) {
+                Log.d(TAG, "Firebase user authenticated: ${currentUser.uid.substring(0, 8)}")
+            } else {
+                Log.w(TAG, "No Firebase user authenticated in background service")
+                
+                // Try to restore authentication from saved credentials
+                restoreFirebaseAuthentication()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing Firebase in background service", e)
+        }
+    }
+    
+    private fun restoreFirebaseAuthentication() {
+        try {
+            // Get saved user ID from preferences
+            val prefs = getSharedPreferences("location_sharing_prefs", Context.MODE_PRIVATE)
+            val savedUserId = prefs.getString("user_id", null)
+            
+            if (savedUserId != null) {
+                Log.d(TAG, "Found saved user ID: ${savedUserId.substring(0, 8)}")
+                
+                // Try to sign in anonymously if no user is authenticated
+                // This allows the background service to write to Firebase
+                FirebaseAuth.getInstance().signInAnonymously()
+                    .addOnSuccessListener { authResult ->
+                        Log.d(TAG, "Anonymous authentication successful for background service")
+                        Log.d(TAG, "Anonymous user ID: ${authResult.user?.uid?.substring(0, 8)}")
+                    }
+                    .addOnFailureListener { exception ->
+                        Log.e(TAG, "Anonymous authentication failed", exception)
+                    }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error restoring Firebase authentication", e)
+        }
+    }
+    
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "Background location service started")
         
-        userId = intent?.getStringExtra("userId")
+        // Handle notification actions
+        when (intent?.action) {
+            ACTION_UPDATE_NOW -> {
+                Log.d(TAG, "Update Now action triggered")
+                handleUpdateNowAction()
+                return START_STICKY
+            }
+            ACTION_STOP_SHARING -> {
+                Log.d(TAG, "Stop sharing action triggered")
+                handleStopSharingAction()
+                return START_NOT_STICKY
+            }
+        }
+        
+        userId = intent?.getStringExtra("userId") ?: userId
         
         if (userId.isNullOrEmpty()) {
             Log.e(TAG, "No user ID provided, stopping service")
@@ -137,6 +209,30 @@ class BackgroundLocationService : Service() {
         saveServiceState(false, null)
     }
     
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.d(TAG, "App task removed - keeping service alive")
+        
+        // DON'T stop the service when app is closed - this is critical for persistence
+        // The notification should remain visible and functional
+        
+        // Restart the service to ensure it continues running
+        val restartIntent = Intent(this, BackgroundLocationService::class.java)
+        restartIntent.putExtra("userId", userId)
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(restartIntent)
+        } else {
+            startService(restartIntent)
+        }
+        
+        // Send a heartbeat to confirm service is still alive
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            sendHeartbeat()
+            Log.d(TAG, "Service confirmed alive after task removal")
+        }, 2000)
+    }
+    
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -160,14 +256,45 @@ class BackgroundLocationService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
+        // Create "Update Now" action
+        val updateNowIntent = Intent(this, BackgroundLocationService::class.java).apply {
+            action = ACTION_UPDATE_NOW
+        }
+        val updateNowPendingIntent = PendingIntent.getService(
+            this, 1, updateNowIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        // Create "Stop Sharing" action
+        val stopSharingIntent = Intent(this, BackgroundLocationService::class.java).apply {
+            action = ACTION_STOP_SHARING
+        }
+        val stopSharingPendingIntent = PendingIntent.getService(
+            this, 2, stopSharingIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Location Sharing Active")
             .setContentText("Sharing your location with family members")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("Sharing your location with family members. Tap 'Update Now' for immediate location update."))
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT) // Higher priority for foreground service
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .addAction(
+                android.R.drawable.ic_menu_mylocation,
+                "Update Now",
+                updateNowPendingIntent
+            )
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Stop",
+                stopSharingPendingIntent
+            )
             .build()
     }
     
@@ -225,37 +352,112 @@ class BackgroundLocationService : Service() {
     private fun updateLocationInFirebase(location: Location) {
         userId?.let { uid ->
             try {
+                Log.d(TAG, "Attempting to update location in Firebase for user: ${uid.substring(0, 8)}")
+                
+                // Check Firebase Auth state before updating
+                val currentUser = FirebaseAuth.getInstance().currentUser
+                if (currentUser == null) {
+                    Log.w(TAG, "No authenticated user - attempting anonymous update")
+                } else {
+                    Log.d(TAG, "Authenticated user: ${currentUser.uid.substring(0, 8)}")
+                }
+                
                 val database = FirebaseDatabase.getInstance()
+                
+                // Enable offline persistence for reliability
+                try {
+                    database.setPersistenceEnabled(true)
+                } catch (e: Exception) {
+                    Log.d(TAG, "Persistence already enabled or not available: ${e.message}")
+                }
+                
                 val locationRef = database.getReference("locations").child(uid)
+                
+                val timestamp = System.currentTimeMillis()
+                val readableTime = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.format(java.util.Date(timestamp))
                 
                 val locationData = mapOf(
                     "lat" to location.latitude,
                     "lng" to location.longitude,
                     "accuracy" to location.accuracy,
-                    "timestamp" to System.currentTimeMillis(),
+                    "timestamp" to timestamp,
+                    "timestampReadable" to readableTime, // Human-readable format
                     "isSharing" to true,
-                    "source" to "background_service"
+                    "lastUpdate" to timestamp,
+                    "lastUpdateReadable" to readableTime, // Human-readable format
+                    "source" to "background_service",
+                    "updatedAt" to readableTime, // Additional readable timestamp
+                    "authStatus" to if (currentUser != null) "authenticated" else "anonymous"
                 )
+                
+                Log.d(TAG, "Updating Firebase with location: ${location.latitude}, ${location.longitude}")
                 
                 locationRef.setValue(locationData)
                     .addOnSuccessListener {
-                        Log.d(TAG, "Location updated in Firebase successfully")
+                        Log.d(TAG, "SUCCESS: Location updated in Firebase at $readableTime")
+                        Log.d(TAG, "SUCCESS: Coordinates: ${location.latitude}, ${location.longitude}")
                     }
                     .addOnFailureListener { exception: Exception ->
-                        Log.e(TAG, "Failed to update location in Firebase", exception)
+                        Log.e(TAG, "FAILED: Location update failed: ${exception.message}")
+                        Log.e(TAG, "FAILED: Exception details: ", exception)
+                        
+                        // Try to save to local storage as backup
+                        saveLocationToLocalStorage(location, timestamp, readableTime)
                     }
                 
-                // Also update user status
+                // Also update user status with readable timestamps
                 val userRef = database.getReference("users").child(uid)
-                userRef.updateChildren(mapOf(
-                    "lastLocationUpdate" to System.currentTimeMillis(),
+                val userStatusData = mapOf(
+                    "lastLocationUpdate" to timestamp,
+                    "lastLocationUpdateReadable" to readableTime, // Human-readable format
+                    "lastSeen" to timestamp,
+                    "lastSeenReadable" to readableTime, // Human-readable format
                     "locationSharingEnabled" to true,
-                    "appUninstalled" to false
-                ))
+                    "appUninstalled" to false,
+                    "serviceActive" to true,
+                    "statusUpdatedAt" to readableTime, // When status was last updated
+                    "authStatus" to if (currentUser != null) "authenticated" else "anonymous"
+                )
+                
+                userRef.updateChildren(userStatusData)
+                    .addOnSuccessListener {
+                        Log.d(TAG, "SUCCESS: User status updated in Firebase")
+                    }
+                    .addOnFailureListener { exception: Exception ->
+                        Log.e(TAG, "FAILED: User status update failed: ${exception.message}")
+                    }
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Error updating location in Firebase", e)
+                Log.e(TAG, "CRITICAL ERROR: Firebase update failed", e)
+                
+                // Save to local storage as backup
+                val timestamp = System.currentTimeMillis()
+                val readableTime = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.format(java.util.Date(timestamp))
+                saveLocationToLocalStorage(location, timestamp, readableTime)
             }
+        } ?: run {
+            Log.e(TAG, "CRITICAL ERROR: Cannot update Firebase - userId is null")
+        }
+    }
+    
+    private fun saveLocationToLocalStorage(location: Location, timestamp: Long, readableTime: String) {
+        try {
+            val prefs = getSharedPreferences("location_backup", Context.MODE_PRIVATE)
+            with(prefs.edit()) {
+                putString("last_location_lat", location.latitude.toString())
+                putString("last_location_lng", location.longitude.toString())
+                putLong("last_location_timestamp", timestamp)
+                putString("last_location_readable", readableTime)
+                putString("backup_reason", "firebase_update_failed")
+                apply()
+            }
+            Log.d(TAG, "BACKUP: Location saved to local storage")
+        } catch (e: Exception) {
+            Log.e(TAG, "BACKUP FAILED: Could not save to local storage", e)
         }
     }
     
@@ -294,13 +496,20 @@ class BackgroundLocationService : Service() {
                 val database = FirebaseDatabase.getInstance()
                 val userRef = database.getReference("users").child(uid)
                 
+                val timestamp = System.currentTimeMillis()
+                val readableTime = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.format(java.util.Date(timestamp))
+                
                 userRef.updateChildren(mapOf(
-                    "lastHeartbeat" to System.currentTimeMillis(),
+                    "lastHeartbeat" to timestamp,
+                    "lastHeartbeatReadable" to readableTime, // Human-readable format
                     "appUninstalled" to false,
-                    "serviceActive" to true
+                    "serviceActive" to true,
+                    "heartbeatAt" to readableTime // When heartbeat was sent
                 ))
                 
-                Log.d(TAG, "Heartbeat sent")
+                Log.d(TAG, "Heartbeat sent at $readableTime")
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending heartbeat", e)
             }
@@ -358,5 +567,119 @@ class BackgroundLocationService : Service() {
         // This would integrate with WorkManager for additional reliability
         // For now, we rely on the service restart mechanism
         Log.d(TAG, "Location work scheduled (service-based)")
+    }
+    
+    private fun handleUpdateNowAction() {
+        Log.d(TAG, "Handling Update Now action")
+        
+        // Update notification to show "Updating..."
+        showUpdatingNotification()
+        
+        // Get immediate high-accuracy location
+        try {
+            val highAccuracyRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L)
+                .setWaitForAccurateLocation(true)
+                .setMinUpdateIntervalMillis(500L)
+                .setMinUpdateDistanceMeters(0f)
+                .setMaxUpdates(1)
+                .build()
+            
+            val immediateCallback = object : LocationCallback() {
+                override fun onLocationResult(locationResult: LocationResult) {
+                    super.onLocationResult(locationResult)
+                    
+                    locationResult.lastLocation?.let { location ->
+                        Log.d(TAG, "Immediate location update: ${location.latitude}, ${location.longitude}")
+                        updateLocationInFirebase(location)
+                        
+                        // Show success notification
+                        showUpdateSuccessNotification(location)
+                        
+                        // Restore normal notification after 3 seconds
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                            notificationManager.notify(NOTIFICATION_ID, createNotification())
+                        }, 3000)
+                    }
+                    
+                    // Remove this callback
+                    fusedLocationClient.removeLocationUpdates(this)
+                }
+                
+                override fun onLocationAvailability(locationAvailability: LocationAvailability) {
+                    super.onLocationAvailability(locationAvailability)
+                    if (!locationAvailability.isLocationAvailable) {
+                        Log.w(TAG, "Location not available for immediate update")
+                        showUpdateFailedNotification()
+                        
+                        // Restore normal notification after 3 seconds
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                            notificationManager.notify(NOTIFICATION_ID, createNotification())
+                        }, 3000)
+                    }
+                }
+            }
+            
+            fusedLocationClient.requestLocationUpdates(
+                highAccuracyRequest,
+                immediateCallback,
+                Looper.getMainLooper()
+            )
+            
+        } catch (securityException: SecurityException) {
+            Log.e(TAG, "Location permission not granted for immediate update", securityException)
+            showUpdateFailedNotification()
+        }
+    }
+    
+    private fun handleStopSharingAction() {
+        Log.d(TAG, "Handling Stop Sharing action")
+        
+        // Save state as stopped
+        saveServiceState(false, null)
+        
+        // Stop the service
+        stopSelf()
+    }
+    
+    private fun showUpdatingNotification() {
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Updating Location...")
+            .setContentText("Getting your current location")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setProgress(0, 0, true) // Indeterminate progress
+            .build()
+        
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, notification)
+    }
+    
+    private fun showUpdateSuccessNotification(location: Location) {
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Location Updated Successfully")
+            .setContentText("Shared your current location with family")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, notification)
+    }
+    
+    private fun showUpdateFailedNotification() {
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Location Update Failed")
+            .setContentText("Unable to get current location")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, notification)
     }
 }
