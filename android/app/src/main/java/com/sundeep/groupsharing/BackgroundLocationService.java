@@ -11,8 +11,10 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.util.Log;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
@@ -30,17 +32,20 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Universal Background Location Service
+ * Universal Background Location Service - AUTOMATIC UPDATES ENHANCED
  * 
  * This service provides persistent background location tracking for ALL authenticated users.
  * It creates a foreground notification with "Update Now" button that works even when the app is closed.
  * 
+ * CRITICAL ENHANCEMENT: Now has AUTOMATIC location updates every 20 seconds + Manual updates
+ * 
  * Key Features:
  * - Works for ANY user ID (not just test users)
- * - Persistent foreground notification
- * - "Update Now" button functionality
+ * - AUTOMATIC location updates every 20 seconds
+ * - Manual "Update Now" button functionality
  * - Real-time Firebase sync
  * - Survives app kills
+ * - Works when screen is off (Wake Lock + Automatic Updates)
  */
 public class BackgroundLocationService extends Service implements LocationListener {
     private static final String TAG = "BackgroundLocationService";
@@ -57,15 +62,20 @@ public class BackgroundLocationService extends Service implements LocationListen
     private DatabaseReference locationsRef;
     private DatabaseReference usersRef;
     private NotificationManager notificationManager;
+    private PowerManager.WakeLock wakeLock;
+    private Handler locationHandler;
+    private Runnable locationRunnable;
     
-    // Location update configuration
-    private static final long MIN_TIME_BETWEEN_UPDATES = 30000; // 30 seconds
-    private static final float MIN_DISTANCE_CHANGE = 10; // 10 meters
+    // Location update configuration - ULTRA AGGRESSIVE for automatic updates
+    private static final long MIN_TIME_BETWEEN_UPDATES = 10000; // 10 seconds (very frequent)
+    private static final float MIN_DISTANCE_CHANGE = 0; // 0 meters (any movement)
+    private static final long AUTOMATIC_UPDATE_INTERVAL = 20000; // 20 seconds automatic updates
+    private static final long FALLBACK_UPDATE_INTERVAL = 45000; // 45 seconds fallback
     
     @Override
     public void onCreate() {
         super.onCreate();
-        Log.d(TAG, "BackgroundLocationService created");
+        Log.d(TAG, "BackgroundLocationService created (AUTOMATIC UPDATES ENHANCED)");
         
         // Initialize Firebase in this process
         try {
@@ -89,17 +99,39 @@ public class BackgroundLocationService extends Service implements LocationListen
         
         // Initialize location manager
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        
+        // Initialize wake lock to keep service running when screen is off
+        PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (powerManager != null) {
+            wakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "GroupSharing:BackgroundLocationWakeLock"
+            );
+            Log.d(TAG, "Wake lock initialized for automatic location updates");
+        }
+        
+        // Initialize handler for AUTOMATIC location updates (works always)
+        locationHandler = new Handler(Looper.getMainLooper());
+        locationRunnable = new Runnable() {
+            @Override
+            public void run() {
+                // AUTOMATIC location update - works screen on/off
+                forceAutomaticLocationUpdate();
+                // Schedule next automatic update
+                locationHandler.postDelayed(this, AUTOMATIC_UPDATE_INTERVAL);
+            }
+        };
     }
     
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Log.d(TAG, "BackgroundLocationService onStartCommand");
+        Log.d(TAG, "BackgroundLocationService onStartCommand (AUTOMATIC UPDATES MODE)");
         
         if (intent != null) {
             String action = intent.getAction();
             
             if (ACTION_UPDATE_NOW.equals(action)) {
-                Log.d(TAG, "UPDATE_NOW action received");
+                Log.d(TAG, "UPDATE_NOW action received (MANUAL update)");
                 handleUpdateNowAction();
                 return START_STICKY;
             } else if (ACTION_STOP_SERVICE.equals(action)) {
@@ -122,8 +154,17 @@ public class BackgroundLocationService extends Service implements LocationListen
             // Start foreground service with notification
             startForeground(NOTIFICATION_ID, createNotification());
             
-            // Start location updates
+            // Acquire wake lock to keep service running when screen is off
+            if (wakeLock != null && !wakeLock.isHeld()) {
+                wakeLock.acquire();
+                Log.d(TAG, "Wake lock acquired - automatic updates will work when screen is off");
+            }
+            
+            // Start location updates (system-based)
             startLocationUpdates();
+            
+            // Start AUTOMATIC location updates (timer-based)
+            startAutomaticLocationUpdates();
             
             // Update user status in Firebase
             updateUserLocationSharingStatus(true);
@@ -139,6 +180,13 @@ public class BackgroundLocationService extends Service implements LocationListen
     public void onDestroy() {
         Log.d(TAG, "BackgroundLocationService destroyed");
         stopLocationUpdates();
+        stopAutomaticLocationUpdates();
+        
+        // Release wake lock
+        if (wakeLock != null && wakeLock.isHeld()) {
+            wakeLock.release();
+            Log.d(TAG, "Wake lock released");
+        }
         
         // Update user status in Firebase
         if (currentUserId != null) {
@@ -160,10 +208,13 @@ public class BackgroundLocationService extends Service implements LocationListen
             NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
                 "Location Sharing",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_HIGH  // High importance to prevent killing
             );
-            channel.setDescription("Background location sharing service");
+            channel.setDescription("Background location sharing service - automatic updates every 20 seconds");
             channel.setShowBadge(false);
+            channel.enableLights(false);
+            channel.enableVibration(false);
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             notificationManager.createNotificationChannel(channel);
         }
     }
@@ -195,14 +246,17 @@ public class BackgroundLocationService extends Service implements LocationListen
         
         return new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Location Sharing Active")
-            .setContentText("Sharing your location with family members")
+            .setContentText("Auto-updates every 20s + Manual Update Now")
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentIntent(openAppPendingIntent)
             .addAction(android.R.drawable.ic_menu_mylocation, "Update Now", updateNowPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setShowWhen(false)
+            .setAutoCancel(false)
             .build();
     }
     
@@ -221,6 +275,7 @@ public class BackgroundLocationService extends Service implements LocationListen
         
         try {
             // Request location updates from both GPS and Network providers
+            // Use aggressive settings for system-based updates
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
@@ -229,7 +284,7 @@ public class BackgroundLocationService extends Service implements LocationListen
                     this,
                     Looper.getMainLooper()
                 );
-                Log.d(TAG, "GPS location updates started");
+                Log.d(TAG, "GPS location updates started (system-based, 10s interval)");
             }
             
             if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
@@ -240,7 +295,19 @@ public class BackgroundLocationService extends Service implements LocationListen
                     this,
                     Looper.getMainLooper()
                 );
-                Log.d(TAG, "Network location updates started");
+                Log.d(TAG, "Network location updates started (system-based, 10s interval)");
+            }
+            
+            // Also request passive location updates for better performance
+            if (locationManager.isProviderEnabled(LocationManager.PASSIVE_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.PASSIVE_PROVIDER,
+                    MIN_TIME_BETWEEN_UPDATES,
+                    MIN_DISTANCE_CHANGE,
+                    this,
+                    Looper.getMainLooper()
+                );
+                Log.d(TAG, "Passive location updates started (system-based)");
             }
             
             // Get last known location immediately
@@ -298,36 +365,15 @@ public class BackgroundLocationService extends Service implements LocationListen
     }
     
     private void handleUpdateNowAction() {
-        Log.d(TAG, "Handling Update Now action");
+        Log.d(TAG, "Handling MANUAL Update Now action");
         
         if (currentUserId == null) {
             Log.e(TAG, "No current user ID for update now action");
             return;
         }
         
-        // Get current location immediately
-        Location currentLocation = getLastKnownLocation();
-        if (currentLocation != null) {
-            onLocationChanged(currentLocation);
-            Log.d(TAG, "Update Now: Location updated successfully");
-        } else {
-            Log.w(TAG, "Update Now: No location available");
-            
-            // Request a fresh location update
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
-                == PackageManager.PERMISSION_GRANTED) {
-                try {
-                    // Request single location update
-                    locationManager.requestSingleUpdate(
-                        LocationManager.GPS_PROVIDER,
-                        this,
-                        Looper.getMainLooper()
-                    );
-                } catch (Exception e) {
-                    Log.e(TAG, "Error requesting single location update: " + e.getMessage());
-                }
-            }
-        }
+        // For manual updates, use the internal method
+        forceLocationUpdateInternal();
     }
     
     @Override
@@ -336,7 +382,12 @@ public class BackgroundLocationService extends Service implements LocationListen
             return;
         }
         
-        Log.d(TAG, "Location changed: " + location.getLatitude() + ", " + location.getLongitude() + 
+        // Calculate location age
+        long locationAge = System.currentTimeMillis() - location.getTime();
+        String ageText = locationAge < 60000 ? (locationAge/1000) + "s old" : (locationAge/60000) + "m old";
+        
+        Log.d(TAG, "LOCATION UPDATE: " + location.getLatitude() + ", " + location.getLongitude() + 
+              " (accuracy: " + location.getAccuracy() + "m, " + ageText + ") " +
               " for user: " + currentUserId.substring(0, Math.min(8, currentUserId.length())));
         
         // Update Firebase with new location
@@ -366,11 +417,13 @@ public class BackgroundLocationService extends Service implements LocationListen
             locationData.put("timestampReadable", timestampReadable);
             locationData.put("isSharing", true);
             locationData.put("accuracy", (double) location.getAccuracy());
+            locationData.put("automaticUpdates", true); // Indicate automatic updates are working
+            locationData.put("updateInterval", AUTOMATIC_UPDATE_INTERVAL); // Show update interval
             
             // Update locations node
             locationsRef.child(currentUserId).setValue(locationData)
                 .addOnSuccessListener(aVoid -> {
-                    Log.d(TAG, "Location updated successfully in Firebase for user: " + 
+                    Log.d(TAG, "Location updated successfully in Firebase (automatic mode) for user: " + 
                           currentUserId.substring(0, Math.min(8, currentUserId.length())));
                 })
                 .addOnFailureListener(e -> {
@@ -382,6 +435,8 @@ public class BackgroundLocationService extends Service implements LocationListen
             userUpdate.put("lastLocationUpdate", timestamp);
             userUpdate.put("lastHeartbeat", timestamp);
             userUpdate.put("appUninstalled", false);
+            userUpdate.put("automaticUpdates", true);
+            userUpdate.put("updateInterval", AUTOMATIC_UPDATE_INTERVAL);
             
             usersRef.child(currentUserId).updateChildren(userUpdate);
             
@@ -408,10 +463,12 @@ public class BackgroundLocationService extends Service implements LocationListen
             userUpdate.put("lastSeen", timestamp);
             userUpdate.put("lastHeartbeat", timestamp);
             userUpdate.put("appUninstalled", false);
+            userUpdate.put("automaticUpdates", isSharing);
+            userUpdate.put("updateInterval", AUTOMATIC_UPDATE_INTERVAL);
             
             usersRef.child(currentUserId).updateChildren(userUpdate)
                 .addOnSuccessListener(aVoid -> {
-                    Log.d(TAG, "User location sharing status updated: " + isSharing + 
+                    Log.d(TAG, "User location sharing status updated (automatic mode): " + isSharing + 
                           " for user: " + currentUserId.substring(0, Math.min(8, currentUserId.length())));
                 })
                 .addOnFailureListener(e -> {
@@ -441,5 +498,123 @@ public class BackgroundLocationService extends Service implements LocationListen
     @Override
     public void onStatusChanged(String provider, int status, android.os.Bundle extras) {
         Log.d(TAG, "Location provider status changed: " + provider + " status: " + status);
+    }
+    
+    private void startAutomaticLocationUpdates() {
+        if (locationHandler != null && locationRunnable != null) {
+            // Start AUTOMATIC updates immediately
+            locationHandler.post(locationRunnable);
+            Log.d(TAG, "AUTOMATIC location updates started - every 20 seconds");
+        }
+    }
+    
+    private void stopAutomaticLocationUpdates() {
+        if (locationHandler != null && locationRunnable != null) {
+            locationHandler.removeCallbacks(locationRunnable);
+            Log.d(TAG, "AUTOMATIC location updates stopped");
+        }
+    }
+    
+    private void forceAutomaticLocationUpdate() {
+        if (currentUserId == null) {
+            return;
+        }
+        
+        Log.d(TAG, "AUTOMATIC location update triggered (every 20 seconds)");
+        
+        // Get current location immediately
+        Location currentLocation = getLastKnownLocation();
+        if (currentLocation != null) {
+            // Check if location is recent enough (within last 2 minutes)
+            long locationAge = System.currentTimeMillis() - currentLocation.getTime();
+            if (locationAge < 120000) { // 2 minutes
+                onLocationChanged(currentLocation);
+                Log.d(TAG, "AUTOMATIC update: Using recent location (age: " + (locationAge/1000) + "s)");
+                return;
+            }
+        }
+        
+        // Location is too old or not available, request fresh location
+        Log.d(TAG, "AUTOMATIC update: Requesting fresh location");
+        
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+            == PackageManager.PERMISSION_GRANTED) {
+            try {
+                // Try multiple providers for better success rate
+                boolean requestSent = false;
+                
+                // First try GPS for accuracy
+                if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    locationManager.requestSingleUpdate(
+                        LocationManager.GPS_PROVIDER,
+                        this,
+                        Looper.getMainLooper()
+                    );
+                    requestSent = true;
+                    Log.d(TAG, "AUTOMATIC update: GPS request sent");
+                }
+                
+                // Also try Network for speed
+                if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    locationManager.requestSingleUpdate(
+                        LocationManager.NETWORK_PROVIDER,
+                        this,
+                        Looper.getMainLooper()
+                    );
+                    requestSent = true;
+                    Log.d(TAG, "AUTOMATIC update: Network request sent");
+                }
+                
+                if (!requestSent) {
+                    Log.w(TAG, "AUTOMATIC update: No location providers available");
+                }
+                
+            } catch (Exception e) {
+                Log.e(TAG, "Error in automatic location update: " + e.getMessage());
+            }
+        }
+    }
+    
+    private void forceLocationUpdateInternal() {
+        if (currentUserId == null) {
+            return;
+        }
+        
+        Log.d(TAG, "MANUAL location update (Update Now button)");
+        
+        // For manual updates, always try to get fresh location
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+            == PackageManager.PERMISSION_GRANTED) {
+            try {
+                // Request fresh location from all available providers
+                if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    locationManager.requestSingleUpdate(
+                        LocationManager.GPS_PROVIDER,
+                        this,
+                        Looper.getMainLooper()
+                    );
+                    Log.d(TAG, "MANUAL update: GPS request sent");
+                }
+                
+                if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    locationManager.requestSingleUpdate(
+                        LocationManager.NETWORK_PROVIDER,
+                        this,
+                        Looper.getMainLooper()
+                    );
+                    Log.d(TAG, "MANUAL update: Network request sent");
+                }
+                
+                // Also use last known location as immediate fallback
+                Location lastKnown = getLastKnownLocation();
+                if (lastKnown != null) {
+                    onLocationChanged(lastKnown);
+                    Log.d(TAG, "MANUAL update: Using last known location as immediate response");
+                }
+                
+            } catch (Exception e) {
+                Log.e(TAG, "Error in manual location update: " + e.getMessage());
+            }
+        }
     }
 }
