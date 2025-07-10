@@ -124,6 +124,17 @@ public class EmergencyService extends Service {
             channel.enableVibration(true);
             channel.enableLights(true);
             channel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+            channel.setBypassDnd(true);  // Bypass Do Not Disturb for emergencies
+            
+            // Android 8.0+ specific settings for maximum persistence
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                channel.setImportance(NotificationManager.IMPORTANCE_HIGH);
+            }
+            
+            // Android 13+ specific settings
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                channel.setAllowBubbles(false);
+            }
             
             notificationManager.createNotificationChannel(channel);
         }
@@ -320,14 +331,23 @@ public class EmergencyService extends Service {
             this, 0, cancelIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
         
+        // Get app icon for better notification appearance
+        int iconResource = getApplicationInfo().icon;
+        if (iconResource == 0) {
+            iconResource = android.R.drawable.ic_dialog_alert;
+        }
+        
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, EMERGENCY_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(iconResource)
             .setContentTitle("SOS Emergency")
             .setContentText("Emergency will be triggered in " + countdown + " seconds")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setAutoCancel(false)
-            .setOngoing(true)
+            .setAutoCancel(false)  // Prevent auto-cancellation
+            .setOngoing(true)  // Make notification persistent
+            .setLocalOnly(true)  // Keep notification local to device
+            .setOnlyAlertOnce(false)  // Allow repeated alerts for emergency
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "CANCEL", cancelPendingIntent)
             .setFullScreenIntent(cancelPendingIntent, true);
         
@@ -341,14 +361,23 @@ public class EmergencyService extends Service {
             this, 0, cancelIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
         
+        // Get app icon for better notification appearance
+        int iconResource = getApplicationInfo().icon;
+        if (iconResource == 0) {
+            iconResource = android.R.drawable.ic_dialog_alert;
+        }
+        
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, EMERGENCY_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("🚨 EMERGENCY ACTIVE")
+            .setSmallIcon(iconResource)
+            .setContentTitle("EMERGENCY ACTIVE")
             .setContentText("Emergency services have been notified. Your location is being shared.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setAutoCancel(false)
-            .setOngoing(true)
+            .setAutoCancel(false)  // Prevent auto-cancellation
+            .setOngoing(true)  // Make notification persistent
+            .setLocalOnly(true)  // Keep notification local to device
+            .setOnlyAlertOnce(false)  // Allow repeated alerts for emergency
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "CANCEL EMERGENCY", cancelPendingIntent)
             .setColor(0xFFFF0000); // Red color
         

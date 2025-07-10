@@ -213,11 +213,24 @@ public class BackgroundLocationService extends Service implements LocationListen
                 "Location Sharing",
                 NotificationManager.IMPORTANCE_HIGH  // High importance to prevent killing
             );
-            channel.setDescription("Background location sharing service - automatic updates every 20 seconds");
+            channel.setDescription("Persistent background location sharing service");
             channel.setShowBadge(false);
             channel.enableLights(false);
             channel.enableVibration(false);
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            channel.setBypassDnd(true);  // Bypass Do Not Disturb
+            channel.setSound(null, null);  // No sound for persistent notification
+            
+            // Android 8.0+ specific settings for persistence
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                channel.setImportance(NotificationManager.IMPORTANCE_HIGH);
+            }
+            
+            // Android 13+ specific settings
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                channel.setAllowBubbles(false);
+            }
+            
             notificationManager.createNotificationChannel(channel);
         }
     }
@@ -247,19 +260,28 @@ public class BackgroundLocationService extends Service implements LocationListen
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0
         );
         
+        // Get app icon for better notification appearance
+        int iconResource = getApplicationInfo().icon;
+        if (iconResource == 0) {
+            iconResource = android.R.drawable.ic_menu_mylocation;
+        }
+        
         return new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Location Sharing Active")
-            .setContentText("Auto-updates every 20s + Manual Update Now")
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setContentText("Sharing your location in background")
+            .setSmallIcon(iconResource)
             .setContentIntent(openAppPendingIntent)
             .addAction(android.R.drawable.ic_menu_mylocation, "Update Now", updateNowPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setOngoing(true)  // Make notification persistent - cannot be swiped away
+            .setPriority(NotificationCompat.PRIORITY_HIGH)  // High priority to prevent system killing
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setShowWhen(false)
-            .setAutoCancel(false)
+            .setAutoCancel(false)  // Prevent auto-cancellation
+            .setLocalOnly(true)  // Keep notification local to device
+            .setOnlyAlertOnce(true)  // Only alert once to avoid spam
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)  // Immediate foreground service
             .build();
     }
     
