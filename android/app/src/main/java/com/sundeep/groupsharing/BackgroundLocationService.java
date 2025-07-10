@@ -130,6 +130,19 @@ public class BackgroundLocationService extends Service implements LocationListen
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d(TAG, "BackgroundLocationService onStartCommand (AUTOMATIC UPDATES MODE)");
         
+        // Handle service restart scenarios
+        if (intent == null) {
+            Log.d(TAG, "Service restarted by system (intent is null) - attempting recovery");
+            // Try to recover from saved state
+            if (attemptServiceRecovery()) {
+                return START_STICKY; // Continue with recovered state
+            } else {
+                Log.w(TAG, "Could not recover service state, stopping service");
+                stopSelf();
+                return START_NOT_STICKY;
+            }
+        }
+        
         if (intent != null) {
             String action = intent.getAction();
             
@@ -176,7 +189,7 @@ public class BackgroundLocationService extends Service implements LocationListen
             BootReceiver.saveTrackingState(this, true, currentUserId);
         }
         
-        return START_STICKY; // Restart if killed
+        return START_STICKY; // Restart if killed by system
     }
     
     @Override
@@ -640,6 +653,50 @@ public class BackgroundLocationService extends Service implements LocationListen
             } catch (Exception e) {
                 Log.e(TAG, "Error in manual location update: " + e.getMessage());
             }
+        }
+    }
+
+    /**
+     * Attempt to recover service state after system restart
+     * @return true if recovery successful, false otherwise
+     */
+    private boolean attemptServiceRecovery() {
+        try {
+            SharedPreferences prefs = getSharedPreferences("location_service_prefs", Context.MODE_PRIVATE);
+            boolean wasTracking = prefs.getBoolean("was_tracking", false);
+            String savedUserId = prefs.getString("user_id", null);
+            
+            if (wasTracking && savedUserId != null && !savedUserId.isEmpty()) {
+                Log.d(TAG, "Recovering service state for user: " + savedUserId.substring(0, Math.min(8, savedUserId.length())));
+                
+                // Restore user ID
+                currentUserId = savedUserId;
+                
+                // Start foreground service with notification
+                startForeground(NOTIFICATION_ID, createNotification());
+                
+                // Acquire wake lock
+                if (wakeLock != null && !wakeLock.isHeld()) {
+                    wakeLock.acquire();
+                    Log.d(TAG, "Wake lock acquired during recovery");
+                }
+                
+                // Start location updates
+                startLocationUpdates();
+                startAutomaticLocationUpdates();
+                
+                // Update user status
+                updateUserLocationSharingStatus(true);
+                
+                Log.d(TAG, "Service recovery successful");
+                return true;
+            } else {
+                Log.d(TAG, "No valid saved state found for recovery");
+                return false;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error during service recovery: " + e.getMessage());
+            return false;
         }
     }
 
