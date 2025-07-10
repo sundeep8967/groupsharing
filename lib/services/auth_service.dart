@@ -275,6 +275,7 @@ class AuthService {
     // Add print statement here
     developer.log('[TESTING] _createUserDocument called. User ID: ${user.uid}, DisplayName: $displayName, FriendCode: $friendCode');
     final UserModel newUser = UserModel(
+      uid: user.uid,
       id: user.uid,
       email: user.email!,
       displayName: displayName,

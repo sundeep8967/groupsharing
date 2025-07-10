@@ -77,6 +77,9 @@ public class MainActivity extends FlutterActivity {
                                 result.error("INVALID_ARGUMENT", "User ID is required", null);
                             }
                             break;
+                        case "startLocationService":
+                            handleStartLocationService(call, result);
+                            break;
                         case "stop":
                             handleStopBackgroundLocationService(result);
                             break;
@@ -432,6 +435,46 @@ public class MainActivity extends FlutterActivity {
             result.success(null);
         } catch (Exception e) {
             result.error("SERVICE_ERROR", "Failed to start background location service: " + e.getMessage(), null);
+        }
+    }
+    
+    private void handleStartLocationService(MethodCall call, MethodChannel.Result result) {
+        try {
+            String userId = call.argument("userId");
+            if (userId == null || userId.isEmpty()) {
+                result.error("INVALID_ARGUMENT", "User ID is required", null);
+                return;
+            }
+            
+            // Check battery optimization first
+            if (!BackgroundLocationService.isBatteryOptimizationDisabled(this)) {
+                BackgroundLocationService.requestDisableBatteryOptimization(this);
+            }
+            
+            // Check if we have location permissions
+            if (!hasLocationPermissions()) {
+                result.error("PERMISSION_DENIED", "Location permissions not granted", null);
+                return;
+            }
+            
+            // Save location sharing state to SharedPreferences
+            getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+                .edit()
+                .putBoolean("flutter.location_sharing_enabled", true)
+                .apply();
+            
+            Intent serviceIntent = new Intent(this, BackgroundLocationService.class);
+            serviceIntent.putExtra(BackgroundLocationService.EXTRA_USER_ID, userId);
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+            
+            result.success(true);
+        } catch (Exception e) {
+            result.error("SERVICE_ERROR", "Failed to start location service: " + e.getMessage(), null);
         }
     }
     

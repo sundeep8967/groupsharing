@@ -173,6 +173,8 @@ class LocationService {
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       userId: userId,
       position: LatLng(position.latitude, position.longitude),
+      latitude: position.latitude,
+      longitude: position.longitude,
       timestamp: DateTime.now(),
     );
 
