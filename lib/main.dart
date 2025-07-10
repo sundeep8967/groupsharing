@@ -18,6 +18,8 @@ import 'services/life360_location_service.dart';
 import 'services/bulletproof_location_service.dart';
 import 'services/comprehensive_location_fix_service.dart';
 import 'services/persistent_foreground_notification_service.dart';
+import 'services/battery_optimization_service.dart';
+import 'services/location_service_starter.dart';
 import 'screens/performance_monitor_screen.dart';
 
 void main() async {
@@ -59,6 +61,20 @@ void main() async {
   // Initialize Life360-style location service (fallback)
   debugPrint('=== INITIALIZING LIFE360 LOCATION SERVICE ===');
   await Life360LocationService.initialize();
+  
+  // AUTOMATICALLY CHECK AND REQUEST BATTERY OPTIMIZATION
+  debugPrint('=== CHECKING BATTERY OPTIMIZATION ===');
+  try {
+    final isDisabled = await BatteryOptimizationService.isBatteryOptimizationDisabled();
+    if (!isDisabled) {
+      debugPrint('BATTERY: Optimization is enabled, will prompt user to disable it');
+      // Note: The actual prompt will show when the app UI is ready
+    } else {
+      debugPrint('BATTERY: Optimization already disabled - perfect!');
+    }
+  } catch (e) {
+    debugPrint('BATTERY: Error checking optimization status: $e');
+  }
   
   // Check if we need to restore location tracking with comprehensive service
   debugPrint('=== CHECKING FOR STATE RESTORATION ===');
@@ -133,12 +149,28 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           _permissionsChecked = true;
           _permissionsGranted = true;
         });
+        
+        // AUTOMATICALLY CHECK BATTERY OPTIMIZATION AFTER PERMISSIONS ARE GRANTED
+        _checkBatteryOptimizationOnStartup();
       }
     } catch (e) {
       setState(() {
         _permissionsChecked = true;
         _permissionsGranted = false;
       });
+    }
+  }
+  
+  Future<void> _checkBatteryOptimizationOnStartup() async {
+    // Wait a bit for the UI to be ready
+    await Future.delayed(const Duration(seconds: 2));
+    
+    if (mounted) {
+      try {
+        await BatteryOptimizationService.checkAndPromptBatteryOptimization(context);
+      } catch (e) {
+        debugPrint('Error checking battery optimization on startup: $e');
+      }
     }
   }
   

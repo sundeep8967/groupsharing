@@ -20,6 +20,9 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.provider.Settings;
+import android.app.Activity;
 
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.database.DatabaseReference;
@@ -614,6 +617,47 @@ public class BackgroundLocationService extends Service implements LocationListen
                 
             } catch (Exception e) {
                 Log.e(TAG, "Error in manual location update: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Check if battery optimization is disabled for the app
+     * @param context Application context
+     * @return true if battery optimization is disabled, false otherwise
+     */
+    public static boolean isBatteryOptimizationDisabled(Context context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+            if (powerManager != null) {
+                return powerManager.isIgnoringBatteryOptimizations(context.getPackageName());
+            }
+        }
+        return true; // Assume disabled for older versions
+    }
+
+    /**
+     * Request to disable battery optimization for the app
+     * @param activity Activity context to start the intent
+     */
+    public static void requestDisableBatteryOptimization(Activity activity) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!isBatteryOptimizationDisabled(activity)) {
+                Log.d(TAG, "Requesting battery optimization exemption");
+                try {
+                    Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    intent.setData(Uri.parse("package:" + activity.getPackageName()));
+                    activity.startActivity(intent);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error requesting battery optimization exemption: " + e.getMessage());
+                    // Fallback to general battery optimization settings
+                    try {
+                        Intent fallbackIntent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                        activity.startActivity(fallbackIntent);
+                    } catch (Exception fallbackException) {
+                        Log.e(TAG, "Error opening battery optimization settings: " + fallbackException.getMessage());
+                    }
+                }
             }
         }
     }
