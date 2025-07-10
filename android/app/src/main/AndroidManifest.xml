@@ -112,7 +112,10 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="location"
-            android:stopWithTask="false" />
+            android:stopWithTask="false"
+            android:directBootAware="true"
+            android:isolatedProcess="false"
+            android:process=":background_location" />
             
         <!-- Ultra-Persistent Location Service for OnePlus devices -->
         <service
@@ -121,7 +124,9 @@
             android:exported="false"
             android:foregroundServiceType="location"
             android:stopWithTask="false"
-            android:directBootAware="true" />
+            android:directBootAware="true"
+            android:isolatedProcess="false"
+            android:process=":persistent_location" />
             
         <!-- Bulletproof Location Service -->
         <service
@@ -130,7 +135,9 @@
             android:exported="false"
             android:foregroundServiceType="location"
             android:stopWithTask="false"
-            android:directBootAware="true" />
+            android:directBootAware="true"
+            android:isolatedProcess="false"
+            android:process=":bulletproof_location" />
             
         <!-- Persistent Foreground Notification Service -->
         <service
@@ -139,7 +146,9 @@
             android:exported="false"
             android:foregroundServiceType="location"
             android:stopWithTask="false"
-            android:directBootAware="true" />
+            android:directBootAware="true"
+            android:isolatedProcess="false"
+            android:process=":persistent_notification" />
         
         <!-- Native Driving Detection Service -->
         <service

@@ -41,18 +41,31 @@ public class BootReceiver extends BroadcastReceiver {
                 Log.d(TAG, "Restarting location service for user: " + userId.substring(0, Math.min(8, userId.length())));
                 
                 try {
-                    Intent serviceIntent = new Intent(context, BackgroundLocationService.class);
-                    serviceIntent.putExtra(BackgroundLocationService.EXTRA_USER_ID, userId);
+                    // Add delay to ensure system is fully booted
+                    android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+                    handler.postDelayed(() -> {
+                        try {
+                            Intent serviceIntent = new Intent(context, BackgroundLocationService.class);
+                            serviceIntent.putExtra(BackgroundLocationService.EXTRA_USER_ID, userId);
+                            
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                context.startForegroundService(serviceIntent);
+                            } else {
+                                context.startService(serviceIntent);
+                            }
+                            
+                            Log.d(TAG, "Location service restarted successfully after boot");
+                            
+                            // Start service watchdog to monitor service health
+                            startServiceWatchdog(context, userId);
+                            
+                        } catch (Exception e) {
+                            Log.e(TAG, "Error restarting location service after delay: " + e.getMessage());
+                        }
+                    }, 5000); // 5 second delay
                     
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        context.startForegroundService(serviceIntent);
-                    } else {
-                        context.startService(serviceIntent);
-                    }
-                    
-                    Log.d(TAG, "Location service restarted successfully");
                 } catch (Exception e) {
-                    Log.e(TAG, "Error restarting location service: " + e.getMessage());
+                    Log.e(TAG, "Error setting up location service restart: " + e.getMessage());
                 }
             } else {
                 Log.d(TAG, "Location service was not running before reboot, not restarting");
@@ -72,5 +85,65 @@ public class BootReceiver extends BroadcastReceiver {
         
         Log.d(TAG, "Tracking state saved: " + isTracking + " for user: " + 
               (userId != null ? userId.substring(0, Math.min(8, userId.length())) : "null"));
+    }
+    
+    /**
+     * Start service watchdog to monitor and restart service if needed
+     */
+    private static void startServiceWatchdog(Context context, String userId) {
+        Log.d(TAG, "Starting service watchdog");
+        
+        android.os.Handler watchdogHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        
+        Runnable watchdogRunnable = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    // Check if service is still running
+                    if (!isServiceRunning(context, BackgroundLocationService.class)) {
+                        Log.w(TAG, "Service watchdog detected service is not running - restarting");
+                        
+                        Intent serviceIntent = new Intent(context, BackgroundLocationService.class);
+                        serviceIntent.putExtra(BackgroundLocationService.EXTRA_USER_ID, userId);
+                        
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            context.startForegroundService(serviceIntent);
+                        } else {
+                            context.startService(serviceIntent);
+                        }
+                        
+                        Log.d(TAG, "Service restarted by watchdog");
+                    } else {
+                        Log.d(TAG, "Service watchdog: Service is running normally");
+                    }
+                    
+                    // Schedule next check in 2 minutes
+                    watchdogHandler.postDelayed(this, 120000);
+                    
+                } catch (Exception e) {
+                    Log.e(TAG, "Error in service watchdog: " + e.getMessage());
+                    // Continue monitoring despite errors
+                    watchdogHandler.postDelayed(this, 120000);
+                }
+            }
+        };
+        
+        // Start watchdog with initial delay of 1 minute
+        watchdogHandler.postDelayed(watchdogRunnable, 60000);
+    }
+    
+    /**
+     * Check if a specific service is running
+     */
+    private static boolean isServiceRunning(Context context, Class<?> serviceClass) {
+        android.app.ActivityManager manager = (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        if (manager != null) {
+            for (android.app.ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
+                if (serviceClass.getName().equals(service.service.getClassName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }
