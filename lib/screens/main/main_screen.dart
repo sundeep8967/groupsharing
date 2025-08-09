@@ -363,18 +363,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               const NotificationScreen(),
             ],
           ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => NativeLocationTestScreen(),
-                ),
-              );
-            },
-            backgroundColor: Colors.green,
-            child: const Icon(Icons.location_on, color: Colors.white),
-            tooltip: 'Test Native Location Service',
-          ),
           bottomNavigationBar: NavigationBar(
             selectedIndex: _selectedIndex,
             onDestinationSelected: (index) => setState(() => _selectedIndex = index),

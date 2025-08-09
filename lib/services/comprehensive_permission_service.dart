@@ -22,6 +22,12 @@ class ComprehensivePermissionService {
       // Check notification permissions
       final notificationPermission = await Permission.notification.status;
       
+      // Battery optimization (Android only)
+      PermissionStatus? batteryIgnoreStatus;
+      if (Platform.isAndroid) {
+        batteryIgnoreStatus = await Permission.ignoreBatteryOptimizations.status;
+      }
+
       // Check other permissions
       final phonePermission = await Permission.phone.status;
       final storagePermission = await Permission.storage.status;
@@ -32,6 +38,7 @@ class ComprehensivePermissionService {
       
       _allPermissionsGranted = allGranted;
       
+      // Provide both legacy flat keys and a nested `permissions` map used by UI
       return {
         'allGranted': allGranted,
         'location': locationPermission.isGranted,
@@ -39,6 +46,14 @@ class ComprehensivePermissionService {
         'notification': notificationPermission.isGranted,
         'phone': phonePermission.isGranted,
         'storage': storagePermission.isGranted,
+        'permissions': {
+          'location_basic': locationPermission.isGranted,
+          'location_background': locationAlwaysPermission.isGranted,
+          'battery_optimization': Platform.isAndroid ? (batteryIgnoreStatus?.isGranted ?? false) : true,
+          'auto_start': false, // cannot be detected reliably; user must acknowledge via protection screen
+          'notifications': notificationPermission.isGranted,
+          'ios_background_refresh': Platform.isIOS ? await _iosBackgroundRefreshEnabled() : true,
+        },
       };
     } catch (e) {
       debugPrint('Error getting permission status: $e');
@@ -68,6 +83,11 @@ class ComprehensivePermissionService {
       debugPrint('Requesting background location permission...');
       final backgroundResult = await Permission.locationAlways.request();
       debugPrint('Background location result: $backgroundResult');
+      if (!backgroundResult.isGranted && backgroundResult.isPermanentlyDenied) {
+        debugPrint('Background location permanently denied, opening app settings');
+        await openSystemAppSettings();
+        return false;
+      }
       
       // Step 3: Notification permissions
       debugPrint('Requesting notification permission...');
@@ -143,12 +163,23 @@ class ComprehensivePermissionService {
     }
   }
   
-  /// Open app settings
-  static Future<void> openAppSettings() async {
+  /// Open app settings (system)
+  static Future<void> openSystemAppSettings() async {
     try {
-      await Permission.location.request();
+      await openAppSettings();
     } catch (e) {
       debugPrint('Error opening app settings: $e');
+    }
+  }
+
+  // iOS background app refresh state (best-effort)
+  static Future<bool> _iosBackgroundRefreshEnabled() async {
+    if (!Platform.isIOS) return true;
+    try {
+      // permission_handler does not expose this directly; assume enabled and let UX educate
+      return true;
+    } catch (_) {
+      return true;
     }
   }
 }
