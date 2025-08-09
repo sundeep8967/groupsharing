@@ -101,7 +101,11 @@ class _ChatScreenState extends State<ChatScreen> {
           IconButton(
             icon: const Icon(Icons.map),
             onPressed: () {
-              // TODO: Show friend's location on map
+              // Navigate to main screen with map tab and focus on friend
+              Navigator.of(context).pushReplacementNamed(
+                '/main',
+                arguments: {'focusOnFriend': widget.friendId},
+              );
             },
           ),
         ],
@@ -113,7 +117,6 @@ class _ChatScreenState extends State<ChatScreen> {
               stream: FirebaseService.firestore
                   .collection('messages')
                   .where('chatId', isEqualTo: chatId)
-                  .orderBy('timestamp', descending: false)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
@@ -130,6 +133,11 @@ class _ChatScreenState extends State<ChatScreen> {
                           doc.id,
                         ))
                     .toList();
+                
+                // Sort messages by timestamp in ascending order (oldest first)
+                messages.sort((a, b) {
+                  return a.timestamp.compareTo(b.timestamp);
+                });
 
                 if (messages.isEmpty) {
                   return const Center(
@@ -160,7 +168,7 @@ class _ChatScreenState extends State<ChatScreen> {
               color: Theme.of(context).cardColor,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   offset: const Offset(0, -1),
                   blurRadius: 4,
                 ),
@@ -221,7 +229,7 @@ class MessageBubble extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
@@ -246,8 +254,8 @@ class MessageBubble extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 color: isMe
-                    ? Colors.white.withOpacity(0.7)
-                    : Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                    ? Colors.white.withValues(alpha: 0.7)
+                    : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
               ),
             ),
             if (!isMe && !message.isRead)

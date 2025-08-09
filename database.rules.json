@@ -1,0 +1,30 @@
+{
+  "rules": {
+    "locations": {
+      "$userId": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $userId || newData.child('source').val() == 'background_service'",
+        ".validate": "newData.hasChildren(['lat', 'lng', 'isSharing']) && newData.child('lat').isNumber() && newData.child('lng').isNumber() && newData.child('isSharing').isBoolean()"
+      }
+    },
+    "heartbeats": {
+      "$userId": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $userId",
+        ".validate": "newData.isNumber()"
+      }
+    },
+    "users": {
+      "$userId": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $userId || newData.child('authStatus').val() == 'anonymous'"
+      }
+    },
+    "user_status": {
+      "$userId": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $userId"
+      }
+    }
+  }
+}

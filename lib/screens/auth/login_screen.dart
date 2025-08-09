@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../providers/auth_provider.dart';
+import '../../providers/auth_provider.dart' as app_auth;
+import 'package:groupsharing/services/location_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../utils/theme.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -13,37 +15,72 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
-
   Future<void> _handleGoogleSignIn() async {
+    if (!mounted) return;
+
     try {
       setState(() => _isLoading = true);
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      await authProvider.signInWithGoogle();
+      final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
       
-      // If we get here, sign in was successful
-      if (mounted) {
-        // Check if we're still on the login screen before navigating
-        if (ModalRoute.of(context)?.isCurrent ?? false) {
-          // Navigate to home screen
-          Navigator.pushReplacementNamed(context, '/main');
+      // Attempt sign in
+      final result = await authProvider.signInWithGoogle();
+      
+      if (!mounted) return;
+
+      if (result.success) {
+        // Sync location to Realtime Database after login
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await LocationService().syncLocationOnAppStartOrLogin(user.uid);
+        }
+        // Navigate to main screen on success
+        if (mounted) {
+          Navigator.of(context).pushNamedAndRemoveUntil(
+            '/main',
+            (route) => false,
+          );
+        }
+      } else {
+        // Handle specific error cases
+        String errorMessage = 'Failed to sign in. Please try again.';
+        
+        if (result.error == 'SIGN_IN_CANCELLED') {
+          // User cancelled - don't show error
+          return;
+        } else if (result.error?.toLowerCase().contains('network') == true) {
+          errorMessage = 'Network error. Please check your connection.';
+        } else if (result.error?.toLowerCase().contains('account-exists') == true) {
+          errorMessage = 'An account already exists with a different sign-in method.';
+        }
+        // Show the actual error for debugging
+        debugPrint('Google Sign-In error: \\${result.error}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(errorMessage),
+              duration: const Duration(seconds: 3),
+            ),
+          );
         }
       }
-    } catch (e) {
-      // Only show error message if the widget is still mounted and it's not a cancellation
-      if (mounted && e.toString() != 'Exception: Google Sign In was cancelled') {
+    } catch (e, stack) {
+      debugPrint('Google Sign-In Exception: \\${e.toString()}');
+      debugPrint('Stack trace: \\${stack.toString()}');
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Failed to sign in. Please try again.'),
+            content: Text('An unexpected error occurred. Please try again.'),
             duration: Duration(seconds: 3),
           ),
         );
       }
+      rethrow;
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
-  }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -87,6 +124,29 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildHeader() {
     return Column(
       children: [
+        // App Logo
+        Container(
+          width: 120,
+          height: 120,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Image.asset(
+              'assets/images/applogo.png',
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
         Text(
           'GroupSharing',
           style: GoogleFonts.pacifico(

@@ -43,3 +43,21 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Environment variables and sensitive configuration
+.env
+.env.local
+.env.production
+.env.staging
+lib/config/api_keys.dart
+
+# Firebase configuration files (should be regenerated for each environment)
+# Uncomment these in production:
+# android/app/google-services.json
+# ios/Runner/GoogleService-Info.plist
+
+# iOS build artifacts
+ios/Pods/
+ios/Podfile.lock
+ios/.symlinks/
+ios/Flutter/flutter_export_environment.sh
