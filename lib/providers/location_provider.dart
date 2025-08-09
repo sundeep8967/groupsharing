@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geocoding/geocoding.dart' as geocoding;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/persistent_location_service.dart';
 import '../services/location_service.dart';
@@ -66,6 +67,8 @@ class LocationProvider with ChangeNotifier {
   String? _country;
   String? _postalCode;
   List<String> _nearbyUsers = [];
+  DateTime? _lastReverseGeocodeAt;
+  LatLng? _lastReverseGeocodeLocation;
   
   String? get currentAddress => _currentAddress;
   String? get city => _city;
@@ -332,6 +335,8 @@ class LocationProvider with ChangeNotifier {
       );
       
       _currentLocation = LatLng(position.latitude, position.longitude);
+      // Update a human-readable address for UI
+      await _updateAddressFromCoordinates(position.latitude, position.longitude);
       _status = 'Location found';
       if (_mounted) notifyListeners();
     } catch (e) {
@@ -494,7 +499,24 @@ class LocationProvider with ChangeNotifier {
     // Check proximity notifications
     _checkProximityNotifications();
     
+    // Reverse geocode at most every ~60s or when the user moves >50m
+    if (_shouldReverseGeocode(location)) {
+      _updateAddressFromCoordinates(location.latitude, location.longitude);
+    }
+    
     if (_mounted) notifyListeners();
+  }
+
+  bool _shouldReverseGeocode(LatLng newLocation) {
+    // Always reverse geocode if we have no prior data
+    if (_lastReverseGeocodeAt == null || _lastReverseGeocodeLocation == null) {
+      return true;
+    }
+    final timeSince = DateTime.now().difference(_lastReverseGeocodeAt!);
+    if (timeSince.inSeconds >= 60) return true;
+    const Distance distance = Distance();
+    final movedMeters = distance(newLocation, _lastReverseGeocodeLocation!);
+    return movedMeters >= 50.0;
   }
   
   /// Sync location to Firebase Realtime Database
@@ -870,13 +892,29 @@ class LocationProvider with ChangeNotifier {
   /// Get address for coordinates
   Future<Map<String, String?>?> getAddressForCoordinates(double latitude, double longitude) async {
     try {
-      // This would use geocoding to get address
-      // For now, return a simple format as a map
+      final placemarks = await geocoding.placemarkFromCoordinates(latitude, longitude);
+      if (placemarks.isEmpty) {
+        return {
+          'address': 'Lat: ${latitude.toStringAsFixed(6)}, Lng: ${longitude.toStringAsFixed(6)}',
+          'city': null,
+          'country': null,
+          'postalCode': null,
+        };
+      }
+      final p = placemarks.first;
+      final parts = <String>[
+        if ((p.name ?? '').isNotEmpty) p.name!,
+        if ((p.subLocality ?? '').isNotEmpty) p.subLocality!,
+        if ((p.locality ?? '').isNotEmpty) p.locality!,
+        if ((p.administrativeArea ?? '').isNotEmpty) p.administrativeArea!,
+        if ((p.postalCode ?? '').isNotEmpty) p.postalCode!,
+        if ((p.country ?? '').isNotEmpty) p.country!,
+      ];
       return {
-        'address': 'Lat: ${latitude.toStringAsFixed(6)}, Lng: ${longitude.toStringAsFixed(6)}',
-        'city': 'Unknown City',
-        'country': 'Unknown Country',
-        'postalCode': 'Unknown',
+        'address': parts.isEmpty ? null : parts.join(', '),
+        'city': p.locality ?? p.subAdministrativeArea ?? p.administrativeArea,
+        'country': p.country,
+        'postalCode': p.postalCode,
       };
     } catch (e) {
       developer.log('Error getting address for coordinates: $e');
@@ -915,12 +953,30 @@ class LocationProvider with ChangeNotifier {
   /// Update address from coordinates
   Future<void> _updateAddressFromCoordinates(double latitude, double longitude) async {
     try {
-      // This would use geocoding to get address components
-      // For now, set basic values
-      _currentAddress = 'Lat: ${latitude.toStringAsFixed(6)}, Lng: ${longitude.toStringAsFixed(6)}';
-      _city = 'Unknown City';
-      _country = 'Unknown Country';
-      _postalCode = 'Unknown';
+      final placemarks = await geocoding.placemarkFromCoordinates(latitude, longitude);
+      if (placemarks.isNotEmpty) {
+        final p = placemarks.first;
+        final parts = <String>[
+          if ((p.name ?? '').isNotEmpty) p.name!,
+          if ((p.subLocality ?? '').isNotEmpty) p.subLocality!,
+          if ((p.locality ?? '').isNotEmpty) p.locality!,
+          if ((p.administrativeArea ?? '').isNotEmpty) p.administrativeArea!,
+          if ((p.postalCode ?? '').isNotEmpty) p.postalCode!,
+          if ((p.country ?? '').isNotEmpty) p.country!,
+        ];
+        _currentAddress = parts.isEmpty ? null : parts.join(', ');
+        _city = p.locality ?? p.subAdministrativeArea ?? p.administrativeArea;
+        _country = p.country;
+        _postalCode = p.postalCode;
+      } else {
+        _currentAddress = 'Lat: ${latitude.toStringAsFixed(6)}, Lng: ${longitude.toStringAsFixed(6)}';
+        _city = null;
+        _country = null;
+        _postalCode = null;
+      }
+      _lastReverseGeocodeAt = DateTime.now();
+      _lastReverseGeocodeLocation = LatLng(latitude, longitude);
+      if (_mounted) notifyListeners();
     } catch (e) {
       developer.log('Error updating address from coordinates: $e');
     }
