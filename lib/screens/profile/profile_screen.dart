@@ -9,10 +9,12 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../providers/auth_provider.dart' as app_auth;
 import '../../services/firebase_service.dart';
-import '../../services/deep_link_service.dart';
-import '../../models/saved_place.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/services.dart';
+import '../settings/battery_optimization_screen.dart';
+import '../debug/background_location_fix_screen.dart';
+import '../debug/native_location_test_screen.dart';
+import '../protection_status_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -91,6 +93,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         centerTitle: true,
         actions: [
           IconButton(
+            icon: const Icon(Icons.map, size: 24, color: Colors.green),
+            onPressed: () {
+              // Navigate to the Map tab on the main screen
+              Navigator.of(context).pushNamed('/main');
+            },
+            tooltip: 'Open Map',
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh, size: 24),
             onPressed: _refreshProfileData,
             tooltip: 'Refresh Profile',
@@ -130,7 +140,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   _buildProfileHeader(user, colorScheme),
                   const SizedBox(height: 24),
-                  _buildSavedPlaces(theme),
+                  _buildSettingsSection(theme),
                   const SizedBox(height: 24),
                   // Removed delete account button from here
                   SizedBox(height: bottomPadding + 80), // Extra space for the button
@@ -170,7 +180,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: colorScheme.shadow.withOpacity(0.05),
+                    color: colorScheme.shadow.withValues(alpha: 0.05),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -355,188 +365,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildSavedPlaces(ThemeData theme) {
-    final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
-    final userId = authProvider.user?.uid;
+  
 
-    if (userId == null) {
-      return const Center(
-        child: Text(
-          'Please log in to see saved places.',
-          style: TextStyle(fontSize: 14),
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Saved Places',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: theme.colorScheme.onSurface,
-              ),
-            ),
-            TextButton.icon(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Add new place coming soon!')),
-                );
-              },
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('Add'),
-              style: TextButton.styleFrom(
-                foregroundColor: theme.colorScheme.primary,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseService.firestore
-              .collection('users')
-              .doc(userId)
-              .collection('saved_places')
-              .orderBy('createdAt', descending: true)
-              .snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return Text(
-                'Error: ${snapshot.error}',
-                style: const TextStyle(fontSize: 14, color: Colors.red),
-              );
-            }
-
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              );
-            }
-
-            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
-                child: Text(
-                  'No saved places yet',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: theme.colorScheme.onSurface.withOpacity(0.6),
-                  ),
-                ),
-              );
-            }
-
-            final places = snapshot.data!.docs.map((doc) {
-              try {
-                return SavedPlace.fromFirestore(doc);
-              } catch (e) {
-                debugPrint('Error parsing saved place doc ${doc.id}: $e');
-                return null;
-              }
-            }).whereType<SavedPlace>().toList();
-
-            if (places.isEmpty) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
-                child: Text(
-                  'No saved places yet',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: theme.colorScheme.onSurface.withOpacity(0.6),
-                  ),
-                ),
-              );
-            }
-
-            return ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              itemCount: places.length,
-              itemBuilder: (context, index) => _buildSavedPlaceTile(places[index]),
-              separatorBuilder: (context, index) => const SizedBox(height: 8),
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSavedPlaceTile(SavedPlace place) {
-    final iconData = _getIconForPlace(place.icon);
-    final iconBgColor = Colors.grey.shade200;
-    final iconColor = Colors.grey.shade800;
-
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey.shade200),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: iconBgColor,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(iconData, color: iconColor, size: 20),
-        ),
-        title: Text(
-          place.name,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          place.address,
-          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-          overflow: TextOverflow.ellipsis,
-          maxLines: 1,
-        ),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-        onTap: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Editing for ${place.name} coming soon!')),
-          );
-        },
-      ),
-    );
-  }
-
-  IconData _getIconForPlace(String iconName) {
-    switch (iconName.toLowerCase()) {
-      case 'home':
-        return Icons.home_outlined;
-      case 'work':
-        return Icons.work_outline;
-      default:
-        return Icons.location_on_outlined;
-    }
-  }
-
-  Future<void> _shareProfile() async {
-    final user = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
-    if (user == null) return;
-
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-    final friendCode = userDoc.data()?['friendCode'] ?? '';
-    final profileLink = DeepLinkService.generateProfileLink(user.uid);
-    final message = 'Check out my profile on GroupSharing!\nFriend code: $friendCode\n$profileLink';
-    await Share.share(message);
-  }
+  // _shareProfile function removed - was not connected to any UI elements
 
   void _showImagePickerOptions() {
     showModalBottomSheet(
@@ -783,5 +614,172 @@ Future<void> _handleReauthentication() async {
     );
   }
 }
+
+  /// Build settings section
+  Widget _buildSettingsSection(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Settings',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.grey.shade200),
+          ),
+          child: Column(
+            children: [
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.battery_saver, color: Colors.orange.shade700, size: 20),
+                ),
+                title: const Text(
+                  'Battery Optimization',
+                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Improve location sharing reliability',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const BatteryOptimizationScreen(),
+                    ),
+                  );
+                },
+              ),
+              Divider(height: 1, color: Colors.grey.shade200),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.build, color: Colors.red.shade700, size: 20),
+                ),
+                title: const Text(
+                  'Fix Background Location',
+                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Diagnose and fix location issues',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const BackgroundLocationFixScreen(),
+                    ),
+                  );
+                },
+              ),
+              Divider(height: 1, color: Colors.grey.shade200),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.location_on, color: Colors.blue.shade700, size: 20),
+                ),
+                title: const Text(
+                  'Location Permissions',
+                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Manage location access settings',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.pushNamed(context, '/location-permissions');
+                },
+              ),
+              Divider(height: 1, color: Colors.grey.shade200),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.verified_user, color: Colors.green.shade700, size: 20),
+                ),
+                title: const Text(
+                  'Protection Status',
+                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Battery optimization, autostart & force-stop guidance',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ProtectionStatusScreen(),
+                    ),
+                  );
+                },
+              ),
+              Divider(height: 1, color: Colors.grey.shade200),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.developer_mode, color: Colors.purple.shade700, size: 20),
+                ),
+                title: const Text(
+                  'Test Native Location Service',
+                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Debug-only diagnostics to validate native service',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => NativeLocationTestScreen(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
 }

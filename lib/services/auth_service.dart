@@ -8,6 +8,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'firebase_service.dart';
+import 'dart:developer' as developer;
+import 'package:geolocator/geolocator.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseService.auth;
@@ -34,7 +36,7 @@ class AuthService {
       if (userCredential.user != null) {
         String userId = userCredential.user!.uid;
         // Add print statement here
-        print('[TESTING] User signed in with email. User ID: $userId. Checking friend code...');
+        developer.log('[TESTING] User signed in with email. User ID: $userId. Checking friend code...');
         DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
 
         String? friendCode;
@@ -50,19 +52,21 @@ class AuthService {
 
         if (friendCode == null || friendCode.length != 6) {
           // If friend code is missing or invalid, generate and save a new one
-          print('[TESTING] friendCode missing or invalid. Current value: $friendCode. Generating new one...');
+          developer.log('[TESTING] friendCode missing or invalid. Current value: $friendCode. Generating new one...');
           String newFriendCode = await generateUniqueFriendCode();
-          print('[TESTING] Generated new friendCode for existing user: $newFriendCode');
+          developer.log('[TESTING] Generated new friendCode for existing user: $newFriendCode');
           // Add print statement here
-          print('[TESTING] Updating user $userId with new friendCode: $newFriendCode');
+          developer.log('[TESTING] Updating user $userId with new friendCode: $newFriendCode');
           await _firestore.collection('users').doc(userId).update({
             'friendCode': newFriendCode,
           });
         } else {
           // Add print statement here
-          print('[TESTING] Existing valid friendCode found: $friendCode');
+          developer.log('[TESTING] Existing valid friendCode found: $friendCode');
         }
       }
+      // Prompt for required permissions after successful sign-in
+      await _ensureLocationPermissions();
       return userCredential;
     } catch (e) {
       throw _handleAuthException(e);
@@ -77,7 +81,7 @@ class AuthService {
   ) async {
     try {
       // Add print statement here
-      print('[TESTING] Registering new user. displayName: $displayName. Generating friend code...');
+      developer.log('[TESTING] Registering new user. displayName: $displayName. Generating friend code...');
       final UserCredential userCredential = 
           await _auth.createUserWithEmailAndPassword(
         email: email,
@@ -88,13 +92,16 @@ class AuthService {
       if (userCredential.user != null) {
         String newFriendCode = await generateUniqueFriendCode(); // generateUniqueFriendCode is now public
         // Add print statement here
-        print('[TESTING] Generated friendCode for new user: $newFriendCode');
+        developer.log('[TESTING] Generated friendCode for new user: $newFriendCode');
         await _createUserDocument(
           userCredential.user!,
           displayName,
           friendCode: newFriendCode
         );
       }
+
+      // Prompt for required permissions after successful registration
+      await _ensureLocationPermissions();
 
       return userCredential;
     } catch (e) {
@@ -105,32 +112,32 @@ class AuthService {
   // Sign in with Google
   Future<UserCredential> signInWithGoogle() async {
     try {
-      print('[AUTH] Starting Google Sign-In process...');
+      developer.log('[AUTH] Starting Google Sign-In process...');
       
       // Trigger the authentication flow
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
-        print('[AUTH] User canceled Google Sign-In');
+        developer.log('[AUTH] User canceled Google Sign-In');
         throw FirebaseAuthException(
           code: 'sign_in_canceled',
           message: 'Sign in was canceled',
         );
       }
 
-      print('[AUTH] Google user obtained: ${googleUser.email}');
+      developer.log('[AUTH] Google user obtained: ${googleUser.email}');
 
       // Obtain the auth details from the request
       final GoogleSignInAuthentication? googleAuth = await googleUser.authentication;
       
       if (googleAuth?.accessToken == null || googleAuth?.idToken == null) {
-        print('[AUTH] Failed to get Google authentication tokens');
+        developer.log('[AUTH] Failed to get Google authentication tokens');
         throw FirebaseAuthException(
           code: 'missing_auth_token',
           message: 'Failed to get authentication tokens from Google',
         );
       }
 
-      print('[AUTH] Google authentication tokens obtained');
+      developer.log('[AUTH] Google authentication tokens obtained');
 
       // Create a new credential
       final credential = GoogleAuthProvider.credential(
@@ -138,26 +145,26 @@ class AuthService {
         idToken: googleAuth?.idToken,
       );
       
-      print('[AUTH] Signing in to Firebase with Google credential...');
+      developer.log('[AUTH] Signing in to Firebase with Google credential...');
       
       // Sign in to Firebase with the Google credential
       UserCredential userCredential = await _auth.signInWithCredential(credential);
       
-      print('[AUTH] Firebase sign-in successful: ${userCredential.user?.email}');
+      developer.log('[AUTH] Firebase sign-in successful: ${userCredential.user?.email}');
       
       // Save user data to Firestore and SharedPreferences
       if (userCredential.user != null) {
-        print('[AUTH] Saving user data...');
+        developer.log('[AUTH] Saving user data...');
         await _saveUserData(userCredential.user!);
-        print('[AUTH] User data saved successfully');
+        developer.log('[AUTH] User data saved successfully');
       }
       
       return userCredential;
     } catch (e) {
-      print('[AUTH] Google sign in error: $e');
+      developer.log('[AUTH] Google sign in error: $e');
       if (e is FirebaseAuthException) {
-        print('[AUTH] Firebase error code: ${e.code}');
-        print('[AUTH] Firebase error message: ${e.message}');
+        developer.log('[AUTH] Firebase error code: ${e.code}');
+        developer.log('[AUTH] Firebase error message: ${e.message}');
       }
       rethrow;
     }
@@ -212,7 +219,7 @@ class AuthService {
         }
       }
     } catch (e) {
-      print('Error saving or fetching user data: $e');
+      developer.log('Error saving or fetching user data: $e');
       rethrow;
     }
   }
@@ -237,26 +244,26 @@ class AuthService {
       // Step 1: Delete user-specific sub-collections (e.g., saved_places)
       // This method is expected to be in FirebaseService and will be implemented later.
       await FirebaseService.deleteUserSubCollections(userId);
-      print('Successfully deleted user sub-collections for $userId.');
+      developer.log('Successfully deleted user sub-collections for $userId.');
 
       // Step 2: Delete the user's document from the 'users' collection
       // This method is expected to be in FirebaseService and will be implemented later.
       await FirebaseService.deleteUserDocument(userId);
-      print('Successfully deleted user document for $userId from Firestore.');
+      developer.log('Successfully deleted user document for $userId from Firestore.');
 
       // Step 3: Delete the user from Firebase Authentication
       await user.delete();
-      print('Successfully deleted user account from Firebase Authentication for $userId.');
+      developer.log('Successfully deleted user account from Firebase Authentication for $userId.');
 
       // Optionally, sign out the user from Google Sign-In if they used it
       // This might be redundant if user.delete() handles it, but good for thoroughness
       if (await _googleSignIn.isSignedIn()) {
         await _googleSignIn.signOut();
-        print('Signed out from Google after account deletion.');
+        developer.log('Signed out from Google after account deletion.');
       }
 
     } on FirebaseAuthException catch (e) {
-      print('Error deleting user from Firebase Authentication: ${e.code} - ${e.message}');
+      developer.log('Error deleting user from Firebase Authentication: ${e.code} - ${e.message}');
       // Specific handling for re-authentication if needed
       if (e.code == 'requires-recent-login') {
         throw Exception(
@@ -264,7 +271,7 @@ class AuthService {
       }
       throw Exception('Failed to delete Firebase Auth user: ${e.message}');
     } catch (e) {
-      print('An error occurred during account deletion for user $userId: $e');
+      developer.log('An error occurred during account deletion for user $userId: $e');
       throw Exception('Failed to delete user account: $e');
     }
   }
@@ -272,8 +279,9 @@ class AuthService {
   // Create user document in Firestore
   Future<void> _createUserDocument(User user, String displayName, {String? friendCode}) async {
     // Add print statement here
-    print('[TESTING] _createUserDocument called. User ID: ${user.uid}, DisplayName: $displayName, FriendCode: $friendCode');
+    developer.log('[TESTING] _createUserDocument called. User ID: ${user.uid}, DisplayName: $displayName, FriendCode: $friendCode');
     final UserModel newUser = UserModel(
+      uid: user.uid,
       id: user.uid,
       email: user.email!,
       displayName: displayName,
@@ -291,14 +299,14 @@ class AuthService {
     userData['updatedAt'] = FieldValue.serverTimestamp();
 
     // Add print statement here
-    print('[TESTING] Saving new user to Firestore. Data: $userData');
+    developer.log('[TESTING] Saving new user to Firestore. Data: $userData');
     await _firestore.collection('users').doc(user.uid).set(userData);
   }
 
   // Generate a unique friend code
   Future<String> generateUniqueFriendCode() async {
     // Add print statement here
-    print('[TESTING] generateUniqueFriendCode called.');
+    developer.log('[TESTING] generateUniqueFriendCode called.');
     String code;
     bool exists = true;
     final rand = Random();
@@ -310,7 +318,7 @@ class AuthService {
       exists = query.docs.isNotEmpty;
     } while (exists);
     // Add print statement here
-    print('[TESTING] Unique friendCode generated: $code');
+    developer.log('[TESTING] Unique friendCode generated: $code');
     return code;
   }
 
@@ -333,5 +341,34 @@ class AuthService {
       }
     }
     return Exception('An unexpected error occurred.');
+  }
+
+  // Minimal permission prompt to be called right after login/signup success
+  Future<void> _ensureLocationPermissions() async {
+    try {
+      // Ensure services are enabled
+      final servicesOn = await Geolocator.isLocationServiceEnabled();
+      if (!servicesOn) {
+        await Geolocator.openLocationSettings();
+      }
+
+      // Request permissions
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+
+      if (perm == LocationPermission.deniedForever) {
+        await Geolocator.openAppSettings();
+        return;
+      }
+
+      // Try to upgrade to Always if possible (background)
+      if (perm == LocationPermission.whileInUse) {
+        await Geolocator.requestPermission();
+      }
+    } catch (e) {
+      developer.log('Permission prompt post-auth failed: $e');
+    }
   }
 }

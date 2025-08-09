@@ -6,6 +6,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/location_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:developer' as developer;
 
 /// Enhanced LocationProvider with extensive debugging
 /// Replace your existing LocationProvider with this one to see detailed logs
@@ -15,7 +16,7 @@ class LocationProvider with ChangeNotifier {
   StreamSubscription? _friendsLocationSubscription;
   StreamSubscription<DocumentSnapshot>? _userStatusSubscription;
   LatLng? _currentLocation;
-  List<String> _nearbyUsers = [];
+  final List<String> _nearbyUsers = [];
   bool _isTracking = false;
   bool _isInitialized = false;
   bool _mounted = true;
@@ -43,7 +44,7 @@ class LocationProvider with ChangeNotifier {
   bool get mounted => _mounted;
 
   void _log(String message) {
-    print('LOCATION_PROVIDER_DEBUG: $message');
+    developer.log('LOCATION_PROVIDER_DEBUG: $message');
     debugPrint('LOCATION_PROVIDER_DEBUG: $message');
   }
 

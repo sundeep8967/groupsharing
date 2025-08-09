@@ -107,15 +107,14 @@ class LocationService {
       distanceFilter: optimizedAccuracy.round(), // Use optimized distance filter (convert to int)
     );
 
-    // Background service disabled - using Flutter-based real-time updates instead
-    // The enhanced LocationProvider now handles all Firebase updates directly
+    // Start background service for persistent location tracking
     if (Platform.isAndroid) {
       try {
-        // Temporarily disabled to prevent crashes
-        // await _bgChannel.invokeMethod('start', {'userId': userId});
-        debugPrint('Background service disabled - using Flutter real-time updates');
+        await _bgChannel.invokeMethod('start', {'userId': userId});
+        debugPrint('Background location service started for user: $userId');
       } catch (e) {
-        debugPrint('Background service error (ignored): $e');
+        debugPrint('Background service error: $e');
+        // Continue with Flutter-based updates as fallback
       }
     }
 
@@ -141,11 +140,10 @@ class LocationService {
   static Future<void> stopRealtimeLocationUpdates() async {
     if (Platform.isAndroid) {
       try { 
-        // Temporarily disabled to prevent crashes
-        // await _bgChannel.invokeMethod('stop'); 
-        debugPrint('Background service stop disabled - using Flutter real-time updates');
+        await _bgChannel.invokeMethod('stop'); 
+        debugPrint('Background location service stopped');
       } catch (e) {
-        debugPrint('Background service stop error (ignored): $e');
+        debugPrint('Background service stop error: $e');
       }
     }
     await _positionStream?.cancel();
@@ -175,6 +173,8 @@ class LocationService {
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       userId: userId,
       position: LatLng(position.latitude, position.longitude),
+      latitude: position.latitude,
+      longitude: position.longitude,
       timestamp: DateTime.now(),
     );
 

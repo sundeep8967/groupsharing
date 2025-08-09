@@ -101,7 +101,11 @@ class _ChatScreenState extends State<ChatScreen> {
           IconButton(
             icon: const Icon(Icons.map),
             onPressed: () {
-              // TODO: Show friend's location on map
+              // Navigate to main screen with map tab and focus on friend
+              Navigator.of(context).pushReplacementNamed(
+                '/main',
+                arguments: {'focusOnFriend': widget.friendId},
+              );
             },
           ),
         ],
@@ -132,12 +136,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 
                 // Sort messages by timestamp in ascending order (oldest first)
                 messages.sort((a, b) {
-                  final aTimestamp = a.timestamp;
-                  final bTimestamp = b.timestamp;
-                  if (aTimestamp == null && bTimestamp == null) return 0;
-                  if (aTimestamp == null) return -1;
-                  if (bTimestamp == null) return 1;
-                  return aTimestamp.compareTo(bTimestamp);
+                  return a.timestamp.compareTo(b.timestamp);
                 });
 
                 if (messages.isEmpty) {
@@ -169,7 +168,7 @@ class _ChatScreenState extends State<ChatScreen> {
               color: Theme.of(context).cardColor,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   offset: const Offset(0, -1),
                   blurRadius: 4,
                 ),
@@ -230,7 +229,7 @@ class MessageBubble extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
@@ -255,8 +254,8 @@ class MessageBubble extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 color: isMe
-                    ? Colors.white.withOpacity(0.7)
-                    : Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                    ? Colors.white.withValues(alpha: 0.7)
+                    : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
               ),
             ),
             if (!isMe && !message.isRead)

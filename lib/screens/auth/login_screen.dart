@@ -124,6 +124,29 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildHeader() {
     return Column(
       children: [
+        // App Logo
+        Container(
+          width: 120,
+          height: 120,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Image.asset(
+              'assets/images/applogo.png',
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
         Text(
           'GroupSharing',
           style: GoogleFonts.pacifico(

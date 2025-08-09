@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:developer' as developer;
 
 class FirebaseService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -35,9 +36,9 @@ class FirebaseService {
   static Future<void> deleteUserDocument(String userId) async {
     try {
       await usersCollection.doc(userId).delete();
-      print('FirebaseService: User document $userId deleted successfully.');
+      developer.log('FirebaseService: User document $userId deleted successfully.');
     } catch (e) {
-      print('FirebaseService: Error deleting user document $userId: $e');
+      developer.log('FirebaseService: Error deleting user document $userId: $e');
       throw Exception('Failed to delete user document: $e');
     }
   }
@@ -51,7 +52,7 @@ class FirebaseService {
       final snapshot = await savedPlaces.get();
 
       if (snapshot.docs.isEmpty) {
-        print('FirebaseService: No documents found in saved_places for user $userId. Nothing to delete.');
+        developer.log('FirebaseService: No documents found in saved_places for user $userId. Nothing to delete.');
         return;
       }
 
@@ -61,10 +62,10 @@ class FirebaseService {
         batch.delete(doc.reference);
       }
       await batch.commit();
-      print('FirebaseService: Successfully deleted ${snapshot.docs.length} documents from saved_places for user $userId.');
+      developer.log('FirebaseService: Successfully deleted ${snapshot.docs.length} documents from saved_places for user $userId.');
 
     } catch (e) {
-      print('FirebaseService: Error deleting saved_places for user $userId: $e');
+      developer.log('FirebaseService: Error deleting saved_places for user $userId: $e');
       // It's important to decide if this error should halt the entire account deletion.
       // For now, we rethrow, but in a more complex scenario, one might log and continue.
       throw Exception('Failed to delete saved_places sub-collection: $e');
@@ -81,9 +82,9 @@ class FirebaseService {
     //     batch.delete(doc.reference);
     //   }
     //   await batch.commit();
-    //   print('FirebaseService: Successfully deleted documents from another_sub_collection for user $userId.');
+    //   developer.log('FirebaseService: Successfully deleted documents from another_sub_collection for user $userId.');
     // } catch (e) {
-    //   print('FirebaseService: Error deleting another_sub_collection for user $userId: $e');
+    //   developer.log('FirebaseService: Error deleting another_sub_collection for user $userId: $e');
     //   throw Exception('Failed to delete another_sub_collection: $e');
     // }
   }

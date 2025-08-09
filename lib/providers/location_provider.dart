@@ -1,152 +1,330 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
+import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/persistent_location_service.dart';
 import '../services/location_service.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_database/firebase_database.dart';
+import '../services/notification_service.dart';
+import '../services/proximity_service.dart';
+import '../services/native_background_location_service.dart';
+import '../services/universal_location_integration_service.dart';
 import '../utils/performance_optimizer.dart';
+import '../services/battery_optimization_service.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Enhanced LocationProvider with REAL-TIME push notifications
-/// This version uses Firebase Realtime Database for instant synchronization
+/// Enhanced Location Provider that uses the Persistent Location Service
+/// This provider ensures location tracking continues even when the app is killed
 class LocationProvider with ChangeNotifier {
-  final LocationService _locationService = LocationService();
+  final LocationService _fallbackService = LocationService();
   final FirebaseDatabase _realtimeDb = FirebaseDatabase.instance;
   final PerformanceOptimizer _performanceOptimizer = PerformanceOptimizer();
   
-  // Subscriptions for real-time updates
-  StreamSubscription<Position>? _locationSubscription;
-  StreamSubscription? _friendsLocationSubscription;
-  StreamSubscription<DocumentSnapshot>? _userStatusSubscription;
-  StreamSubscription<DatabaseEvent>? _realtimeStatusSubscription;
-  StreamSubscription<DatabaseEvent>? _realtimeLocationSubscription;
-  StreamSubscription<ServiceStatus>? _locationServiceSubscription;
-  
   // State variables
-  LatLng? _currentLocation;
-  final List<String> _nearbyUsers = [];
-  bool _isTracking = false;
   bool _isInitialized = false;
+  bool _isTracking = false;
   bool _mounted = true;
+  String? _currentUserId;
   String? _error;
   String _status = 'Initializing...';
+  LatLng? _currentLocation;
+  Map<String, LatLng> _userLocations = {};
+  Map<String, bool> _userSharingStatus = {};
+  
+  // Subscriptions
+  StreamSubscription<DatabaseEvent>? _realtimeLocationSubscription;
+  StreamSubscription<DatabaseEvent>? _realtimeStatusSubscription;
+  StreamSubscription<Position>? _fallbackLocationSubscription;
+  
+  // Timers
+  Timer? _healthCheckTimer;
+  Timer? _syncTimer;
+  
+  // Configuration
+  static const Duration _healthCheckInterval = Duration(minutes: 2);
+  static const Duration _syncInterval = Duration(seconds: 30);
+  
+  // Getters
+  bool get isInitialized => _isInitialized;
+  bool get isTracking => _isTracking;
+  bool get mounted => _mounted;
+  String? get currentUserId => _currentUserId;
+  String? get error => _error;
+  String get status => _status;
+  LatLng? get currentLocation => _currentLocation;
+  Map<String, LatLng> get userLocations => _userLocations;
+  Map<String, bool> get userSharingStatus => _userSharingStatus;
+  
+  // Additional getters for compatibility
   String? _currentAddress;
   String? _city;
   String? _country;
   String? _postalCode;
-  Map<String, LatLng> _userLocations = {};
-  Map<String, bool> _userSharingStatus = {}; // Track real-time sharing status for each user
-  VoidCallback? onLocationServiceDisabled;
-  VoidCallback? onLocationServiceEnabled;
+  List<String> _nearbyUsers = [];
   
-  // Prevent race conditions with local state changes
-  DateTime? _lastLocalToggleTime;
-  static const Duration _localToggleProtectionWindow = Duration(seconds: 3);
-  
-  // Location service state management
-  bool _locationServiceEnabled = true;
-  bool _wasTrackingBeforeServiceDisabled = false;
-  String? _userIdForResumption;
-  
-  // Heartbeat mechanism to detect app uninstall
-  Timer? _heartbeatTimer;
-  static const Duration _heartbeatInterval = Duration(seconds: 30); // Shorter interval for faster detection
-  
-  // Debounce timer to prevent excessive notifications
-  Timer? _notificationDebounceTimer;
-  
-  // Performance optimization
-  DateTime? _lastLocationUpdate;
-  DateTime? _lastFirebaseUpdate;
-
-  // Getters
-  LatLng? get currentLocation => _currentLocation;
-  List<String> get nearbyUsers => _nearbyUsers;
-  bool get isTracking => _isTracking;
-  bool get isInitialized => _isInitialized;
-  String? get error => _error;
-  String get status => _status;
   String? get currentAddress => _currentAddress;
   String? get city => _city;
   String? get country => _country;
   String? get postalCode => _postalCode;
-  Map<String, LatLng> get userLocations => _userLocations;
-  Map<String, bool> get userSharingStatus => _userSharingStatus;
-  bool get mounted => _mounted;
-  bool get locationServiceEnabled => _locationServiceEnabled;
-
-  // Check if a specific user is sharing their location
-  bool isUserSharingLocation(String userId) {
-    if (userId.isEmpty) return false;
-    return _userSharingStatus[userId] == true && _userLocations.containsKey(userId);
-  }
-
-  // Guard to prevent multiple simultaneous location requests
-  bool _isGettingLocation = false;
-  DateTime? _lastLocationRequestTime;
+  List<String> get nearbyUsers => _nearbyUsers;
   
-  // Get current location for map display (without starting tracking)
-  Future<void> getCurrentLocationForMap() async {
-    if (_currentLocation != null) {
-      _log('Current location already available: ${_currentLocation?.latitude}, ${_currentLocation?.longitude}');
-      return;
-    }
+  // Callback setters for compatibility
+  VoidCallback? onLocationServiceDisabled;
+  VoidCallback? onLocationServiceEnabled;
+  
+  /// Initialize the enhanced location provider
+  Future<bool> initialize() async {
+    if (_isInitialized) return true;
     
-    if (_isGettingLocation) {
-      _log('Location request already in progress, skipping');
-      return;
-    }
-    
-    // Add cooldown period to prevent excessive requests
-    final now = DateTime.now();
-    if (_lastLocationRequestTime != null && 
-        now.difference(_lastLocationRequestTime!) < const Duration(seconds: 5)) {
-      _log('Location request too frequent, skipping (cooldown: 5s)');
-      return;
-    }
-    
-    _isGettingLocation = true;
-    _log('=== GETTING CURRENT LOCATION FOR MAP ===');
     try {
-      _status = 'Getting your location...';
-      _log('Status: $_status');
+      developer.log('Initializing EnhancedLocationProvider');
+      
+      // Initialize performance optimizer
+      await _performanceOptimizer.initialize();
+      
+      // Initialize notification service
+      await NotificationService.initialize();
+      
+      // Initialize persistent location service
+      final persistentInitialized = await PersistentLocationService.initialize();
+      if (!persistentInitialized) {
+        developer.log('Failed to initialize persistent location service, using fallback');
+      }
+      
+      // Restore previous tracking state
+      await _restoreTrackingState();
+      
+      // Start real-time listeners
+      _startRealtimeListeners();
+      
+      // Start health monitoring
+      _startHealthMonitoring();
+      
+      _isInitialized = true;
+      _status = 'Ready';
       if (_mounted) notifyListeners();
       
-      _log('Checking if location services are enabled...');
-      final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      _log('Location services enabled: $serviceEnabled');
+      developer.log('EnhancedLocationProvider initialized successfully');
+      return true;
+    } catch (e) {
+      developer.log('Failed to initialize EnhancedLocationProvider: $e');
+      _error = 'Initialization failed: $e';
+      _status = 'Error';
+      if (_mounted) notifyListeners();
+      return false;
+    }
+  }
+
+  /// Request all permissions needed for location sharing.
+  /// Returns true if permissions and services are in an acceptable state.
+  Future<bool> requestAllPermissions() async {
+    try {
+      // Ensure location services (GPS) are enabled
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        // Prompt user to enable location services
+        await Geolocator.openLocationSettings();
+        // Re-check after user interaction
+        final recheck = await Geolocator.isLocationServiceEnabled();
+        if (!recheck) {
+          developer.log('Location services remain disabled');
+          return false;
+        }
+      }
+
+      // Check and request location permissions
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        // Cannot request automatically; direct user to app settings
+        await Geolocator.openAppSettings();
+        return false;
+      }
+
+      // Attempt to upgrade to Always if possible (best for background)
+      if (permission == LocationPermission.whileInUse) {
+        final maybeUpgraded = await Geolocator.requestPermission();
+        if (maybeUpgraded != LocationPermission.always && maybeUpgraded != LocationPermission.whileInUse) {
+          developer.log('Location permission not granted to usable level');
+          return false;
+        }
+      }
+
+      return permission == LocationPermission.always || permission == LocationPermission.whileInUse;
+    } catch (e) {
+      developer.log('Error requesting permissions: $e');
+      return false;
+    }
+  }
+  
+  /// Start persistent location tracking
+  Future<bool> startTracking(String userId) async {
+    if (!_isInitialized) {
+      final initialized = await initialize();
+      if (!initialized) return false;
+    }
+    
+    if (_isTracking && _currentUserId == userId) {
+      developer.log('Already tracking for user: ${userId.substring(0, 8)}');
+      return true;
+    }
+    
+    try {
+      developer.log('Starting enhanced location tracking for user: ${userId.substring(0, 8)}');
       
+      // Ensure required permissions/services are granted before starting
+      final permsOk = await requestAllPermissions();
+      if (!permsOk) {
+        _error = 'Required permissions not granted';
+        _status = 'Permissions required';
+        if (_mounted) notifyListeners();
+        return false;
+      }
+
+      _currentUserId = userId;
+      _error = null;
+      _status = 'Starting location tracking...';
+      if (_mounted) notifyListeners();
+      
+      // Save tracking state
+      await _saveTrackingState(userId, true);
+      
+      // CRITICAL: Use Universal Location Integration Service
+      // This ensures ALL authenticated users get the same working functionality
+      // that was previously only available to test users
+      UniversalLocationIntegrationService.onLocationUpdate = _handleLocationUpdate;
+      UniversalLocationIntegrationService.onError = _handleLocationError;
+      UniversalLocationIntegrationService.onServiceStopped = _handleServiceStopped;
+      
+      final universalStarted = await UniversalLocationIntegrationService.startLocationTrackingForUser(userId);
+      
+      if (!universalStarted) {
+        developer.log('Universal service failed, falling back to legacy services');
+        
+        // Fallback to legacy implementation
+        await _updateLocationSharingStatus(userId, true);
+        
+        final nativeStarted = await _startNativeBackgroundService(userId);
+        final persistentStarted = await PersistentLocationService.startTracking(
+          userId: userId,
+          onLocationUpdate: _handleLocationUpdate,
+          onError: _handleLocationError,
+          onServiceStopped: _handleServiceStopped,
+        );
+        
+        if (!persistentStarted && !nativeStarted) {
+          await _startFallbackTracking(userId);
+        }
+      }
+      
+      // Start sync monitoring
+      _startSyncMonitoring();
+      
+      _isTracking = true;
+      _userSharingStatus[userId] = true;
+      _status = 'Location sharing active';
+      if (_mounted) notifyListeners();
+      
+      developer.log('Enhanced location tracking started successfully');
+      return true;
+    } catch (e) {
+      developer.log('Failed to start enhanced location tracking: $e');
+      _error = 'Failed to start tracking: $e';
+      _status = 'Error';
+      if (_mounted) notifyListeners();
+      return false;
+    }
+  }
+  
+  /// Stop persistent location tracking
+  Future<bool> stopTracking() async {
+    if (!_isTracking) return true;
+    
+    try {
+      developer.log('Stopping enhanced location tracking');
+      
+      _status = 'Stopping location tracking...';
+      if (_mounted) notifyListeners();
+      
+      // Update user sharing status
+      if (_currentUserId != null) {
+        _userSharingStatus[_currentUserId!] = false;
+      }
+      
+      // CRITICAL: Stop Universal Location Integration Service
+      // This properly stops all background services for the user
+      await UniversalLocationIntegrationService.stopLocationTracking();
+      
+      // Fallback: Stop legacy services if universal service fails
+      await _stopNativeBackgroundService();
+      await PersistentLocationService.stopTracking();
+      await _stopFallbackTracking();
+      
+      // Stop sync monitoring
+      _stopSyncMonitoring();
+      
+      // Save tracking state
+      if (_currentUserId != null) {
+        await _saveTrackingState(_currentUserId!, false);
+      }
+      
+      // Clear proximity tracking
+      ProximityService.clearProximityTracking();
+      
+      _isTracking = false;
+      _currentLocation = null;
+      _status = 'Location sharing stopped';
+      if (_mounted) notifyListeners();
+      
+      developer.log('Enhanced location tracking stopped successfully');
+      return true;
+    } catch (e) {
+      developer.log('Failed to stop enhanced location tracking: $e');
+      _error = 'Failed to stop tracking: $e';
+      if (_mounted) notifyListeners();
+      return false;
+    }
+  }
+  
+  /// Check if a user is sharing their location
+  bool isUserSharingLocation(String userId) {
+    return _userSharingStatus[userId] == true && _userLocations.containsKey(userId);
+  }
+  
+  /// Get current location for map display
+  Future<void> getCurrentLocationForMap() async {
+    if (_currentLocation != null) return;
+    
+    try {
+      _status = 'Getting your location...';
+      if (_mounted) notifyListeners();
+      
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         _error = 'Location services are disabled';
         _status = 'Location services disabled';
-        _log('ERROR: $_error');
         if (_mounted) notifyListeners();
         return;
       }
-
-      _log('Checking location permissions...');
-      final permission = await Geolocator.checkPermission();
-      _log('Current permission: $permission');
       
+      final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
-        _log('Requesting location permission...');
         final newPermission = await Geolocator.requestPermission();
-        _log('New permission: $newPermission');
-        
         if (newPermission == LocationPermission.denied) {
           _error = 'Location permission denied';
           _status = 'Location permission denied';
-          _log('ERROR: $_error');
           if (_mounted) notifyListeners();
           return;
         }
       }
-
-      _log('Getting current position...');
-      _status = 'Finding your location...';
-      if (_mounted) notifyListeners();
       
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
@@ -155,1052 +333,617 @@ class LocationProvider with ChangeNotifier {
       
       _currentLocation = LatLng(position.latitude, position.longitude);
       _status = 'Location found';
-      _log('SUCCESS: Current location set to ${_currentLocation?.latitude}, ${_currentLocation?.longitude}');
-      
       if (_mounted) notifyListeners();
     } catch (e) {
-      _log('ERROR getting current location: $e');
-      _error = 'Failed to get location: ${e.toString()}';
+      developer.log('Error getting current location: $e');
+      _error = 'Failed to get location: $e';
       _status = 'Location error';
       if (_mounted) notifyListeners();
-    } finally {
-      _isGettingLocation = false;
-      _lastLocationRequestTime = DateTime.now();
     }
   }
-
-  // Set demo location for testing
-  void setDemoLocation() {
-    _log('=== SETTING DEMO LOCATION ===');
-    // Use a demo location (San Francisco)
-    _currentLocation = LatLng(37.7749, -122.4194);
-    _status = 'Demo location set';
-    _error = null;
-    _log('Demo location set: ${_currentLocation?.latitude}, ${_currentLocation?.longitude}');
-    if (_mounted) notifyListeners();
-  }
-
-  // Get current user ID from SharedPreferences
-  Future<String?> _getCurrentUserId() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('user_id');
-  }
-
-  // Throttle logging to prevent excessive output
-  DateTime? _lastLogTime;
-  void _log(String message) {
-    final now = DateTime.now();
-    if (_lastLogTime == null || now.difference(_lastLogTime!) > const Duration(milliseconds: 100)) {
-      debugPrint('REALTIME_PROVIDER: $message');
-      _lastLogTime = now;
-    }
-  }
-
-  // Start monitoring location service status changes
-  void _startLocationServiceMonitoring() {
-    _log('=== STARTING LOCATION SERVICE MONITORING ===');
-    
-    // Cancel existing subscription
-    _locationServiceSubscription?.cancel();
-    
-    // Check initial status
-    Geolocator.isLocationServiceEnabled().then((enabled) {
-      _locationServiceEnabled = enabled;
-      _log('Initial location service status: $enabled');
-      if (_mounted) notifyListeners();
-    });
-    
-    // Listen to service status changes
-    _locationServiceSubscription = Geolocator.getServiceStatusStream().listen((status) {
-      final wasEnabled = _locationServiceEnabled;
-      _locationServiceEnabled = status == ServiceStatus.enabled;
-      
-      _log('Location service status changed: $status (enabled: $_locationServiceEnabled)');
-      
-      if (_mounted) notifyListeners();
-      
-      // Handle service disabled
-      if (wasEnabled && !_locationServiceEnabled) {
-        _handleLocationServiceDisabled();
-      }
-      // Handle service enabled
-      else if (!wasEnabled && _locationServiceEnabled) {
-        _handleLocationServiceEnabled();
-      }
-    }, onError: (error) {
-      _log('Error monitoring location service status: $error');
-    });
-  }
-
-  // Handle location service being disabled - IMMEDIATELY mark user as offline
-  Future<void> _handleLocationServiceDisabled() async {
-    _log('=== LOCATION SERVICE DISABLED ===');
-    
-    // Store current tracking state for resumption
-    _wasTrackingBeforeServiceDisabled = _isTracking;
-    
-    if (_isTracking) {
-      _log('Location service disabled while tracking - marking user as offline');
-      _status = 'Location services disabled - you appear offline to friends';
-      
-      // Get current user ID
-      final userId = await _getCurrentUserId();
-      if (userId != null) {
-        // IMMEDIATELY mark user as offline in both databases
-        await _markUserAsOffline(userId);
-        
-        // Store user ID for resumption
-        _userIdForResumption = userId;
-      }
-      
-      // Pause location subscription but keep tracking state for resumption
-      _locationSubscription?.pause();
-      
-      // Notify callback if set
-      if (onLocationServiceDisabled != null) {
-        onLocationServiceDisabled!();
-      }
-    } else {
-      _status = 'Location services disabled';
-    }
-    
-    if (_mounted) notifyListeners();
-  }
-
-  // Handle location service being enabled - resume tracking if it was active
-  Future<void> _handleLocationServiceEnabled() async {
-    _log('=== LOCATION SERVICE ENABLED ===');
-    
-    _status = 'Location services enabled';
-    
-    // Resume tracking if it was active before service was disabled
-    if (_wasTrackingBeforeServiceDisabled && _userIdForResumption != null) {
-      _log('Resuming location tracking after service re-enabled');
-      _status = 'Resuming location tracking...';
-      
-      // Mark user as online first
-      await _markUserAsOnline(_userIdForResumption!);
-      
-      // Resume location subscription if it was paused
-      _locationSubscription?.resume();
-      
-      // If subscription was cancelled, restart tracking
-      if (_locationSubscription == null) {
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (_mounted && _locationServiceEnabled) {
-            _startTrackingInBackground(_userIdForResumption!);
-          }
-        });
-      }
-      
-      // Reset the flag
-      _wasTrackingBeforeServiceDisabled = false;
-      
-      // Notify callback if set
-      if (onLocationServiceEnabled != null) {
-        onLocationServiceEnabled!();
-      }
-    }
-    
-    if (_mounted) notifyListeners();
-  }
-
-  // Mark user as offline in both databases
-  Future<void> _markUserAsOffline(String userId) async {
-    _log('Marking user as offline: ${userId.substring(0, 8)}');
-    try {
-      // Remove from Realtime Database locations (makes user appear offline immediately)
-      await _realtimeDb.ref('locations/$userId').remove();
-      _log('Removed user from Realtime DB locations');
-      
-      // Update Realtime Database status to indicate location service is disabled
-      await _realtimeDb.ref('users/$userId').update({
-        'locationSharingEnabled': false,
-        'locationServiceDisabled': true,
-        'lastSeen': ServerValue.timestamp,
-      });
-      _log('Updated Realtime DB user status to offline');
-      
-      // Update Firestore to mark as offline
-      await FirebaseFirestore.instance.collection('users').doc(userId).update({
-        'locationSharingEnabled': false,
-        'locationServiceDisabled': true,
-        'location': null, // Clear location data
-        'lastSeen': FieldValue.serverTimestamp(),
-        'lastOnline': FieldValue.serverTimestamp(),
-      });
-      _log('Updated Firestore user status to offline');
-      
-      // Update local state
-      _userSharingStatus[userId] = false;
-      _userLocations.remove(userId);
-      
-    } catch (e) {
-      _log('Error marking user as offline: $e');
-    }
-  }
-
-  // Mark user as online when location service is restored
-  Future<void> _markUserAsOnline(String userId) async {
-    _log('Marking user as online: ${userId.substring(0, 8)}');
-    try {
-      // Update Realtime Database status
-      await _realtimeDb.ref('users/$userId').update({
-        'locationSharingEnabled': true,
-        'locationServiceDisabled': false,
-        'appUninstalled': false,
-        'lastSeen': ServerValue.timestamp,
-        'lastHeartbeat': ServerValue.timestamp,
-      });
-      _log('Updated Realtime DB user status to online');
-      
-      // Update Firestore
-      await FirebaseFirestore.instance.collection('users').doc(userId).update({
-        'locationSharingEnabled': true,
-        'locationServiceDisabled': false,
-        'appUninstalled': false,
-        'lastOnline': FieldValue.serverTimestamp(),
-        'lastHeartbeat': FieldValue.serverTimestamp(),
-      });
-      _log('Updated Firestore user status to online');
-      
-      // Update local state
-      _userSharingStatus[userId] = true;
-      
-    } catch (e) {
-      _log('Error marking user as online: $e');
-    }
-  }
-
-  // Start heartbeat mechanism to detect app uninstall
-  void _startHeartbeat(String userId) {
-    _log('Starting heartbeat for user: ${userId.substring(0, 8)}');
-    
-    // Cancel existing heartbeat
-    _heartbeatTimer?.cancel();
-    
-    // Start new heartbeat timer
-    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (timer) {
-      if (_mounted && _isTracking) {
-        _sendHeartbeat(userId);
-      } else {
-        timer.cancel();
-      }
-    });
-    
-    // Send initial heartbeat
-    _sendHeartbeat(userId);
-  }
-
-  // Send heartbeat to indicate app is still running
-  Future<void> _sendHeartbeat(String userId) async {
-    try {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      
-      // Update heartbeat in Realtime Database with actual timestamp
-      await _realtimeDb.ref('users/$userId/lastHeartbeat').set(now);
-      
-      // Also update other status fields
-      await _realtimeDb.ref('users/$userId').update({
-        'lastHeartbeat': now,
-        'appUninstalled': false,
-        'lastSeen': ServerValue.timestamp,
-      });
-      
-      // Update heartbeat in Firestore
-      await FirebaseFirestore.instance.collection('users').doc(userId).update({
-        'lastHeartbeat': FieldValue.serverTimestamp(),
-        'appUninstalled': false, // Explicitly mark as not uninstalled
-        'lastSeen': FieldValue.serverTimestamp(),
-      });
-      
-      _log('Sent heartbeat for user: ${userId.substring(0, 8)} at $now');
-    } catch (e) {
-      _log('Error sending heartbeat: $e');
-    }
-  }
-
-  // Stop heartbeat mechanism
-  void _stopHeartbeat() {
-    _log('Stopping heartbeat');
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = null;
-  }
-
-  // Debounced notification to prevent excessive rebuilds
-  void _notifyListenersDebounced() {
-    _notificationDebounceTimer?.cancel();
-    final debounceInterval = _performanceOptimizer.getOptimizedDebounceInterval();
-    _notificationDebounceTimer = Timer(debounceInterval, () {
-      if (_mounted) {
-        notifyListeners();
-      }
-    });
-  }
-
-  // Initialize provider with saved state
-  Future<void> initialize() async {
-    _log('=== INITIALIZE CALLED ===');
-    if (_isInitialized) {
-      _log('Already initialized, returning');
-      return;
-    }
-    
-    // Initialize performance optimizer
-    await _performanceOptimizer.initialize();
-    
+  
+  // Private methods
+  
+  Future<void> _restoreTrackingState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final isLocationSharingEnabled = prefs.getBool('location_sharing_enabled') ?? false;
-      final savedUserId = prefs.getString('user_id');
+      final wasTracking = prefs.getBool('enhanced_location_tracking') ?? false;
+      final userId = prefs.getString('enhanced_location_user_id');
       
-      _log('Saved preferences: sharing=$isLocationSharingEnabled, userId=${savedUserId?.substring(0, 8)}');
-      
-      // Set the tracking state immediately to prevent flickering
-      _isTracking = isLocationSharingEnabled;
-      _isInitialized = true;
-      if (_mounted) notifyListeners();
-      
-      // Start monitoring location service status
-      _startLocationServiceMonitoring();
-      
-      // Start listening to user status changes for real-time sync
-      if (savedUserId != null) {
-        _log('Starting REALTIME listeners for user: ${savedUserId.substring(0, 8)}');
-        _startListeningToUserStatus(savedUserId);
-        _listenToFriendsLocations(savedUserId);
-        _listenToAllUsersStatus(); // Listen to all users' sharing status
-      } else {
-        _log('No saved user ID found');
-      }
-      
-      // If location sharing was enabled and we have a user ID, restart tracking
-      if (isLocationSharingEnabled && savedUserId != null) {
-        _log('Auto-restarting location tracking');
+      if (wasTracking && userId != null) {
+        developer.log('Restoring tracking state for user: ${userId.substring(0, 8)}');
+        _currentUserId = userId;
         
-        // Don't update Firebase status immediately - let startTracking handle it
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (_mounted) {
-            startTracking(savedUserId).catchError((e) {
-              _log('Error restarting location tracking: $e');
-              _isTracking = false;
-              if (_mounted) notifyListeners();
-              
-              // Save the failed state to prevent auto-restart loop
-              SharedPreferences.getInstance().then((prefs) {
-                prefs.setBool('location_sharing_enabled', false);
-              });
-            });
-          }
-        });
-      } else if (savedUserId != null) {
-        // Only update status if tracking was explicitly disabled
-        _updateLocationSharingStatus(savedUserId, false);
-      }
-      
-    } catch (e) {
-      _log('Error initializing LocationProvider: $e');
-      _isInitialized = true;
-      _isTracking = false;
-      if (_mounted) notifyListeners();
-    }
-  }
-
-  // Listen to user's own status changes for INSTANT real-time sync across devices
-  void _startListeningToUserStatus(String userId) {
-    _log('Setting up REALTIME user status listener for: ${userId.substring(0, 8)}');
-    
-    // Cancel existing subscriptions
-    _userStatusSubscription?.cancel();
-    _realtimeStatusSubscription?.cancel();
-    
-    // PRIMARY: Listen to Firebase Realtime Database for INSTANT updates (10-50ms)
-    _realtimeStatusSubscription = _realtimeDb
-        .ref('users/$userId/locationSharingEnabled')
-        .onValue
-        .listen((event) {
-      _log('INSTANT STATUS UPDATE RECEIVED from Realtime DB');
-      
-      if (event.snapshot.exists) {
-        final realtimeIsTracking = event.snapshot.value as bool? ?? false;
-        _log('Realtime DB tracking status: $realtimeIsTracking, local: $_isTracking');
-        
-        // Only update if the realtime state is different from local state
-        if (realtimeIsTracking != _isTracking) {
-          // Check if we're in the protection window after a local toggle
-          final now = DateTime.now();
-          final isInProtectionWindow = _lastLocalToggleTime != null && 
-              now.difference(_lastLocalToggleTime!) < _localToggleProtectionWindow;
-          
-          if (isInProtectionWindow) {
-            _log('PROTECTION: Ignoring remote state change during local toggle protection window');
-            return;
-          }
-          
-          _log('INSTANT SYNC: Location sharing status changed to $realtimeIsTracking');
-          _isTracking = realtimeIsTracking;
-          
-          // Update local preferences to match realtime DB
-          SharedPreferences.getInstance().then((prefs) {
-            prefs.setBool('location_sharing_enabled', realtimeIsTracking);
-          });
-          
-          // Update status message - keep it neutral for map display
-          _status = realtimeIsTracking 
-              ? 'Location sharing enabled'
-              : 'Ready to share location';
-          
-          if (_mounted) notifyListeners();
-          
-          // If tracking was enabled from another device, start local tracking
-          if (realtimeIsTracking && _locationSubscription == null) {
-            _log('Starting tracking from INSTANT remote change');
-            _startTrackingInBackground(userId);
-          }
-          // If tracking was disabled from another device, stop local tracking
-          else if (!realtimeIsTracking && _locationSubscription != null) {
-            _log('Stopping tracking from INSTANT remote change');
-            _stopTrackingInBackground();
-          }
+        // Check if persistent service can restore state
+        final restored = await PersistentLocationService.restoreTrackingState();
+        if (restored) {
+          _isTracking = true;
+          _userSharingStatus[userId] = true;
+          _status = 'Location sharing restored';
         }
       }
-    }, onError: (error) {
-      _log('Error listening to realtime status changes: $error');
-    });
-    
-    // BACKUP: Keep Firestore listener for data consistency
-    _userStatusSubscription = FirebaseFirestore.instance
-        .collection('users')
-        .doc(userId)
-        .snapshots()
-        .listen((snapshot) {
-      _log('Firestore backup status received');
-      if (snapshot.exists) {
-        final data = snapshot.data();
-        final firestoreIsTracking = data?['locationSharingEnabled'] as bool? ?? false;
-        
-        // Sync Firestore with Realtime DB if they're out of sync
-        _realtimeDb.ref('users/$userId/locationSharingEnabled').get().then((realtimeSnapshot) {
-          if (realtimeSnapshot.exists) {
-            final realtimeIsTracking = realtimeSnapshot.value as bool? ?? false;
-            if (firestoreIsTracking != realtimeIsTracking) {
-              _log('Syncing Firestore ($firestoreIsTracking) with Realtime DB ($realtimeIsTracking)');
-              FirebaseFirestore.instance.collection('users').doc(userId).update({
-                'locationSharingEnabled': realtimeIsTracking,
-              });
-            }
-          }
-        });
-      }
-    }, onError: (error) {
-      _log('Error listening to Firestore status changes: $error');
-    });
+    } catch (e) {
+      developer.log('Error restoring tracking state: $e');
+    }
   }
-
-  // Listen to friends' locations with INSTANT real-time updates
-  void _listenToFriendsLocations(String userId) {
-    _log('=== SETTING UP REALTIME FRIENDS LOCATION LISTENER ===');
-    _friendsLocationSubscription?.cancel();
-    _realtimeLocationSubscription?.cancel();
-    
-    // PRIMARY: Listen to Firebase Realtime Database for INSTANT location updates
+  
+  Future<void> _saveTrackingState(String userId, bool isTracking) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('enhanced_location_tracking', isTracking);
+      await prefs.setString('enhanced_location_user_id', userId);
+    } catch (e) {
+      developer.log('Error saving tracking state: $e');
+    }
+  }
+  
+  void _startRealtimeListeners() {
+    // Listen to all users' locations
     _realtimeLocationSubscription = _realtimeDb
         .ref('locations')
         .onValue
         .listen((event) {
-      _log('INSTANT LOCATION UPDATE RECEIVED from Realtime DB');
-      
-      if (event.snapshot.exists) {
-        final locationsData = event.snapshot.value as Map<dynamic, dynamic>?;
-        if (locationsData != null) {
-          final updatedLocations = <String, LatLng>{};
-          final updatedSharingStatus = <String, bool>{};
-          
-          for (final entry in locationsData.entries) {
-            final otherUserId = entry.key as String;
-            
-            // Skip current user
-            if (otherUserId == userId) continue;
-            
-            final locationData = entry.value as Map<dynamic, dynamic>?;
-            if (locationData != null && 
-                locationData.containsKey('lat') && 
-                locationData.containsKey('lng')) {
-              
-              final isSharing = locationData['isSharing'] == true;
-              updatedSharingStatus[otherUserId] = isSharing;
-              
-              if (isSharing) {
-                final lat = (locationData['lat'] as num).toDouble();
-                final lng = (locationData['lng'] as num).toDouble();
-                updatedLocations[otherUserId] = LatLng(lat, lng);
-                
-                _log('INSTANT location for ${otherUserId.substring(0, 8)}: $lat, $lng (sharing: $isSharing)');
-              } else {
-                _log('User ${otherUserId.substring(0, 8)} stopped sharing location');
-              }
-            } else {
-              // User has no location data - they are offline
-              updatedSharingStatus[otherUserId] = false;
-              _log('User ${otherUserId.substring(0, 8)} is offline (no location data)');
-            }
-          }
-          
-          // Preserve current user's location if it exists
-          final currentUserLocation = _userLocations[userId];
-          _userLocations = updatedLocations;
-          if (currentUserLocation != null) {
-            _userLocations[userId] = currentUserLocation;
-          }
-          
-          // Update sharing status for all users
-          _userSharingStatus = updatedSharingStatus;
-          if (_isTracking) {
-            _userSharingStatus[userId] = true; // Ensure current user's status is correct
-          }
-          
-          _log('INSTANT UPDATE: ${_userLocations.length} users with locations, ${_userSharingStatus.length} users with status');
-          
-          // Use debounced notification for location updates
-          _notifyListenersDebounced();
-        }
-      }
+      _handleRealtimeLocationUpdate(event);
     }, onError: (error) {
-      _log('ERROR listening to realtime locations: $error');
+      developer.log('Error listening to realtime locations: $error');
     });
     
-    // BACKUP: Keep Firestore listener for data consistency
-    _friendsLocationSubscription = FirebaseFirestore.instance
-        .collection('users')
-        .where('locationSharingEnabled', isEqualTo: true)
-        .snapshots()
-        .listen((query) {
-      _log('FIRESTORE BACKUP: ${query.docs.length} users sharing location');
-      
-      // Only use Firestore data if Realtime DB data is not available
-      if (_userLocations.isEmpty) {
-        final updated = <String, LatLng>{};
-        
-        for (final doc in query.docs) {
-          if (doc.id == userId) continue;
-          
-          final data = doc.data();
-          if (data.containsKey('location') && data['location'] != null) {
-            final locationData = data['location'] as Map<String, dynamic>;
-            if (locationData.containsKey('lat') && locationData.containsKey('lng')) {
-              updated[doc.id] = LatLng(locationData['lat'], locationData['lng']);
-            }
-          }
-        }
-        
-        if (updated.isNotEmpty) {
-          _log('FIRESTORE FALLBACK: Using backup data');
-          final currentUserLocation = _userLocations[userId];
-          _userLocations = updated;
-          if (currentUserLocation != null) {
-            _userLocations[userId] = currentUserLocation;
-          }
-          
-          if (_mounted) {
-            notifyListeners();
-          }
-        }
-      }
+    // Listen to all users' sharing status
+    _realtimeStatusSubscription = _realtimeDb
+        .ref('users')
+        .onValue
+        .listen((event) {
+      _handleRealtimeStatusUpdate(event);
     }, onError: (error) {
-      _log('ERROR listening to Firestore locations: $error');
+      developer.log('Error listening to realtime status: $error');
     });
   }
-
-  // Listen to all users' sharing status for real-time updates
-  void _listenToAllUsersStatus() {
-    _log('=== SETTING UP REALTIME ALL USERS STATUS LISTENER ===');
+  
+  void _handleRealtimeLocationUpdate(DatabaseEvent event) {
+    if (!event.snapshot.exists) return;
     
-    // Listen to all users' sharing status in real-time database
-    _realtimeDb.ref('users').onValue.listen((event) {
-      if (event.snapshot.exists) {
-        final usersData = event.snapshot.value as Map<dynamic, dynamic>?;
-        if (usersData != null) {
-          final updatedSharingStatus = <String, bool>{..._userSharingStatus};
-          bool hasChanges = false;
-          final now = DateTime.now().millisecondsSinceEpoch;
-          
-          for (final entry in usersData.entries) {
-            final userId = entry.key as String;
-            final userData = entry.value as Map<dynamic, dynamic>?;
-            
-            if (userData != null) {
-              // Check if app was uninstalled
-              final appUninstalled = userData['appUninstalled'] == true;
-              final locationSharingEnabled = userData['locationSharingEnabled'] == true;
-              
-              // Check heartbeat to detect app uninstall
-              bool isAppActive = true;
-              if (locationSharingEnabled && userData.containsKey('lastHeartbeat')) {
-                final lastHeartbeat = userData['lastHeartbeat'] as int?;
-                if (lastHeartbeat != null) {
-                  final timeSinceHeartbeat = now - lastHeartbeat;
-                  // If no heartbeat for more than 2 minutes, consider app uninstalled
-                  if (timeSinceHeartbeat > 120000) { // 2 minutes in milliseconds
-                    isAppActive = false;
-                    _log('User ${userId.substring(0, 8)} heartbeat stale (${timeSinceHeartbeat}ms ago) - marking as offline');
-                    
-                    // Mark as uninstalled in database
-                    _markUserAsUninstalledDueToStaleHeartbeat(userId);
-                  }
-                }
-              }
-              
-              final isSharing = locationSharingEnabled && !appUninstalled && isAppActive;
-              
-              // Only update if status actually changed
-              if (updatedSharingStatus[userId] != isSharing) {
-                updatedSharingStatus[userId] = isSharing;
-                hasChanges = true;
-                
-                if (appUninstalled || !isAppActive) {
-                  _log('User ${userId.substring(0, 8)} is offline (uninstalled: $appUninstalled, inactive: ${!isAppActive})');
-                  // Remove from locations as well
-                  _userLocations.remove(userId);
-                } else {
-                  _log('User ${userId.substring(0, 8)} sharing status changed to: $isSharing');
-                }
-              }
-            }
-          }
-          
-          // Only notify if there were actual changes
-          if (hasChanges) {
-            _userSharingStatus = updatedSharingStatus;
-            _notifyListenersDebounced();
-          }
-        }
-      }
-    }, onError: (error) {
-      _log('ERROR listening to realtime user status: $error');
-    });
-  }
-
-  // Mark user as uninstalled due to stale heartbeat
-  Future<void> _markUserAsUninstalledDueToStaleHeartbeat(String userId) async {
     try {
-      // Update Realtime Database to mark as uninstalled
-      await _realtimeDb.ref('users/$userId').update({
-        'locationSharingEnabled': false,
-        'appUninstalled': true,
-        'lastSeen': ServerValue.timestamp,
-        'uninstallReason': 'stale_heartbeat',
-      });
+      final locationsData = event.snapshot.value as Map<dynamic, dynamic>?;
+      if (locationsData == null) return;
       
-      // Remove from locations
-      await _realtimeDb.ref('locations/$userId').remove();
+      final updatedLocations = <String, LatLng>{};
       
-      // Update Firestore as well
-      await FirebaseFirestore.instance.collection('users').doc(userId).update({
-        'locationSharingEnabled': false,
-        'appUninstalled': true,
-        'location': null,
-        'lastSeen': FieldValue.serverTimestamp(),
-        'uninstallReason': 'stale_heartbeat',
-      });
+      for (final entry in locationsData.entries) {
+        final userId = entry.key as String;
+        final locationData = entry.value as Map<dynamic, dynamic>?;
+        
+        if (locationData != null &&
+            locationData.containsKey('lat') &&
+            locationData.containsKey('lng') &&
+            locationData['isSharing'] == true) {
+          
+          final lat = (locationData['lat'] as num).toDouble();
+          final lng = (locationData['lng'] as num).toDouble();
+          updatedLocations[userId] = LatLng(lat, lng);
+        }
+      }
       
-      _log('Marked user ${userId.substring(0, 8)} as uninstalled due to stale heartbeat');
+      // Update current user's location if tracking
+      if (_isTracking && _currentUserId != null && _currentLocation != null) {
+        updatedLocations[_currentUserId!] = _currentLocation!;
+      }
+      
+      _userLocations = updatedLocations;
+      
+      // Check proximity notifications
+      if (_isTracking && _currentUserId != null && _currentLocation != null) {
+        _checkProximityNotifications();
+      }
+      
+      if (_mounted) notifyListeners();
     } catch (e) {
-      _log('Error marking user as uninstalled due to stale heartbeat: $e');
+      developer.log('Error handling realtime location update: $e');
     }
   }
-
-  // Start tracking location
-  Future<void> startTracking(String userId) async {
-    _log('=== START TRACKING CALLED ===');
+  
+  void _handleRealtimeStatusUpdate(DatabaseEvent event) {
+    if (!event.snapshot.exists) return;
     
-    if (_isTracking) {
-      _log('Already tracking, returning');
-      return;
+    try {
+      final usersData = event.snapshot.value as Map<dynamic, dynamic>?;
+      if (usersData == null) return;
+      
+      final updatedStatus = <String, bool>{};
+      final now = DateTime.now().millisecondsSinceEpoch;
+      
+      for (final entry in usersData.entries) {
+        final userId = entry.key as String;
+        final userData = entry.value as Map<dynamic, dynamic>?;
+        
+        if (userData != null) {
+          final locationSharingEnabled = userData['locationSharingEnabled'] == true;
+          final appUninstalled = userData['appUninstalled'] == true;
+          
+          // Check heartbeat for app activity
+          bool isAppActive = true;
+          if (locationSharingEnabled && userData.containsKey('lastHeartbeat')) {
+            final lastHeartbeat = userData['lastHeartbeat'] as int?;
+            if (lastHeartbeat != null) {
+              final timeSinceHeartbeat = now - lastHeartbeat;
+              if (timeSinceHeartbeat > 120000) { // 2 minutes
+                isAppActive = false;
+              }
+            }
+          }
+          
+          updatedStatus[userId] = locationSharingEnabled && !appUninstalled && isAppActive;
+        }
+      }
+      
+      _userSharingStatus = updatedStatus;
+      if (_mounted) notifyListeners();
+    } catch (e) {
+      developer.log('Error handling realtime status update: $e');
     }
-
-    // Store user ID for potential resumption
-    _userIdForResumption = userId;
-
-    // Record local toggle time to prevent race conditions
-    _lastLocalToggleTime = DateTime.now();
-    _log('Recorded local toggle time for protection window');
-
-    // Set tracking to true IMMEDIATELY for instant UI response
-    _isTracking = true;
-    _userSharingStatus[userId] = true; // Update sharing status immediately
-    _error = null;
-    _status = 'Starting location sharing...';
+  }
+  
+  void _handleLocationUpdate(LatLng location) {
+    if (!_isTracking || _currentUserId == null) return;
+    
+    _currentLocation = location;
+    _userLocations[_currentUserId!] = location;
+    
+    // CRITICAL FIX: Sync location to Firebase Realtime Database
+    _syncLocationToFirebase(location);
+    
+    // Check proximity notifications
+    _checkProximityNotifications();
+    
     if (_mounted) notifyListeners();
-
-    // Save preference immediately
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('location_sharing_enabled', true);
-      await prefs.setString('user_id', userId);
-      _log('Saved preferences');
-    } catch (e) {
-      _log('Error saving preferences: $e');
-    }
-
-    // Start listening to user status changes for real-time sync
-    _startListeningToUserStatus(userId);
+  }
+  
+  /// Sync location to Firebase Realtime Database
+  Future<void> _syncLocationToFirebase(LatLng location) async {
+    if (_currentUserId == null) return;
     
-    // Start listening to all users' status if not already listening
-    _listenToAllUsersStatus();
-
-    // Update Firebase status immediately for INSTANT real-time status
-    _updateLocationSharingStatus(userId, true);
-
-    // Start heartbeat to detect app uninstall
-    _startHeartbeat(userId);
-
-    // Do the heavy work in the background
-    _startTrackingInBackground(userId);
-  }
-
-  // Background method to handle the actual location tracking setup
-  Future<void> _startTrackingInBackground(String userId) async {
-    _log('Starting background tracking for: ${userId.substring(0, 8)}');
     try {
-      _status = 'Checking location services...';
-      if (_mounted) notifyListeners();
-
-      // Check if location services are enabled
-      final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        _log('Location services are disabled');
-        _error = 'Location services are disabled';
-        _status = 'Location services are disabled';
-        _isTracking = false;
-        if (_mounted) notifyListeners();
-        if (onLocationServiceDisabled != null) onLocationServiceDisabled!();
-        return;
-      }
-
-      _status = 'Getting location permissions...';
-      if (_mounted) notifyListeners();
-
-      LatLng? lastLocation;
-
-      _status = 'Starting location tracking...';
-      if (_mounted) notifyListeners();
-
-      _locationSubscription = await _locationService.startTracking(
-        userId,
-        (LatLng location) async {
-          _performanceOptimizer.startOperation('location_update');
-          _log('Location update received: ${location.latitude}, ${location.longitude}');
-          
-          // Check if location services are still enabled
-          if (!_locationServiceEnabled) {
-            _log('Location service disabled, cannot update location');
-            _performanceOptimizer.endOperation('location_update');
-            return;
-          }
-          
-          final now = DateTime.now();
-          
-          // Performance-aware update intervals
-          final optimizedInterval = _performanceOptimizer.getOptimizedLocationInterval();
-          final optimizedDistance = _performanceOptimizer.getOptimizedLocationAccuracy();
-          
-          bool shouldUpdate = false;
-          if (lastLocation == null || _lastLocationUpdate == null) {
-            shouldUpdate = true;
-          } else {
-            final distance = const Distance().as(LengthUnit.Meter, lastLocation!, location);
-            final timeDiff = now.difference(_lastLocationUpdate!);
-            shouldUpdate = distance > optimizedDistance || timeDiff > optimizedInterval;
-          }
-          
-          if (shouldUpdate) {
-            lastLocation = location;
-            _lastLocationUpdate = now;
-            _currentLocation = location;
-            _userLocations[userId] = location;
-            _status = 'Location sharing active';
-            _log('Updated current location (optimized)');
-            
-            // Performance-aware Firebase updates
-            final firebaseInterval = _performanceOptimizer.getOptimizedFirebaseUpdateInterval();
-            if (_lastFirebaseUpdate == null || 
-                now.difference(_lastFirebaseUpdate!) > firebaseInterval) {
-              await _updateLocationInBothDatabases(userId, location);
-              _lastFirebaseUpdate = now;
-            }
-            
-            await _getAddressFromCoordinates(location.latitude, location.longitude);
-            
-            if (_mounted) notifyListeners();
-          }
-          
-          _performanceOptimizer.endOperation('location_update');
-        },
-      );
-
-      _status = 'Location sharing active';
-      if (_mounted) notifyListeners();
-
-      // Listen to friends' locations (if not already listening)
-      if (_friendsLocationSubscription == null) {
-        _log('Setting up friends listener from background tracking');
-        _listenToFriendsLocations(userId);
-      }
-    } catch (e) {
-      _log('Error in background tracking: $e');
-      _isTracking = false;
-      _error = e.toString();
-      _status = 'Error: ${e.toString()}';
-      if (_mounted) notifyListeners();
-    }
-  }
-
-  // Update location in BOTH databases for instant sync and persistence
-  Future<void> _updateLocationInBothDatabases(String userId, LatLng location) async {
-    try {
-      // Update Realtime Database FIRST for instant push notifications
-      await _realtimeDb.ref('locations/$userId').set({
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      
+      // Update Realtime Database with location
+      await _realtimeDb.ref('locations/${_currentUserId!}').set({
         'lat': location.latitude,
         'lng': location.longitude,
+        'timestamp': timestamp,
         'isSharing': true,
-        'updatedAt': ServerValue.timestamp,
+        'accuracy': 10.0, // Default accuracy
       });
-      _log('Updated Realtime DB location');
       
-      // Then update Firestore for persistence and queries
-      await FirebaseFirestore.instance.collection('users').doc(userId).update({
+      // Also update Firestore for persistence
+      await FirebaseFirestore.instance.collection('users').doc(_currentUserId!).update({
         'location': {
-          'lat': location.latitude, 
-          'lng': location.longitude, 
-          'updatedAt': FieldValue.serverTimestamp()
+          'lat': location.latitude,
+          'lng': location.longitude,
+          'timestamp': FieldValue.serverTimestamp(),
         },
-        'lastOnline': FieldValue.serverTimestamp(),
+        'lastLocationUpdate': FieldValue.serverTimestamp(),
       });
-      _log('Updated Firestore location');
+      
+      developer.log('Location synced to Firebase: ${location.latitude}, ${location.longitude}');
     } catch (e) {
-      _log('Error updating location in databases: $e');
+      developer.log('Error syncing location to Firebase: $e');
     }
   }
 
-  // Stop tracking location
-  Future<void> stopTracking() async {
-    _log('=== STOP TRACKING CALLED ===');
-    
-    // Record local toggle time to prevent race conditions
-    _lastLocalToggleTime = DateTime.now();
-    _log('Recorded local toggle time for protection window');
-    
-    // Set tracking to false IMMEDIATELY for instant UI response
-    _isTracking = false;
-    _status = 'Location sharing stopped';
-    _error = null;
-    
-    // Update sharing status immediately
-    final userId = await _getCurrentUserId();
-    if (userId != null) {
-      _userSharingStatus[userId] = false;
-    }
-    
+  void _handleLocationError(String error) {
+    developer.log('Location error from persistent service: $error');
+    _error = error;
     if (_mounted) notifyListeners();
-
-    // Update Firebase status immediately for INSTANT real-time status
-    if (userId != null) {
-      _log('Updating Firebase status to false for: ${userId.substring(0, 8)}');
-      _updateLocationSharingStatus(userId, false);
+    
+    // Try to restart with fallback service
+    if (_isTracking && _currentUserId != null) {
+      _startFallbackTracking(_currentUserId!);
     }
-
-    // Do cleanup in background
-    _stopTrackingInBackground();
   }
-
-  // Background method to handle cleanup
-  Future<void> _stopTrackingInBackground() async {
-    _log('Stopping background tracking');
+  
+  void _handleServiceStopped() {
+    developer.log('Persistent location service stopped unexpectedly');
+    
+    if (_isTracking && _currentUserId != null) {
+      // Try to restart the service
+      Future.delayed(const Duration(seconds: 5), () {
+        if (_isTracking && _currentUserId != null) {
+          PersistentLocationService.startTracking(
+            userId: _currentUserId!,
+            onLocationUpdate: _handleLocationUpdate,
+            onError: _handleLocationError,
+            onServiceStopped: _handleServiceStopped,
+          );
+        }
+      });
+    }
+  }
+  
+  Future<void> _startFallbackTracking(String userId) async {
     try {
-      await _locationSubscription?.cancel();
-      await _locationService.stopTracking();
-      _locationSubscription = null;
+      developer.log('Starting fallback location tracking');
       
-      // Stop heartbeat mechanism
-      _stopHeartbeat();
+      _fallbackLocationSubscription = await _fallbackService.startTracking(
+        userId,
+        (LatLng location) {
+          _handleLocationUpdate(location);
+        },
+      );
+    } catch (e) {
+      developer.log('Error starting fallback tracking: $e');
+    }
+  }
+  
+  Future<void> _stopFallbackTracking() async {
+    try {
+      await _fallbackLocationSubscription?.cancel();
+      await _fallbackService.stopTracking();
+      _fallbackLocationSubscription = null;
+    } catch (e) {
+      developer.log('Error stopping fallback tracking: $e');
+    }
+  }
+  
+  /// Start native background location service for persistent notifications
+  Future<bool> _startNativeBackgroundService(String userId) async {
+    try {
+      developer.log('Starting native background location service for user: ${userId.substring(0, 8)}');
       
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('location_sharing_enabled', false);
+      // Initialize the native service if not already done
+      final initialized = await NativeBackgroundLocationService.initialize();
+      if (!initialized) {
+        developer.log('Failed to initialize native background location service');
+        return false;
+      }
       
-      // Clear current user's location data but keep friends' locations
-      _currentLocation = null;
-      _nearbyUsers.clear();
+      // Set up callbacks for location updates
+      NativeBackgroundLocationService.onLocationUpdate = (LatLng location) {
+        developer.log('Native service location update: ${location.latitude}, ${location.longitude}');
+        _handleLocationUpdate(location);
+      };
       
-      // Remove current user from both databases
-      final currentUserId = await _getCurrentUserId();
-      if (currentUserId != null) {
-        _userLocations.remove(currentUserId);
-        _userSharingStatus[currentUserId] = false; // Update sharing status
+      NativeBackgroundLocationService.onError = (String error) {
+        developer.log('Native service error: $error');
+        _handleLocationError(error);
+      };
+      
+      NativeBackgroundLocationService.onServiceStopped = () {
+        developer.log('Native service stopped unexpectedly');
+        _handleServiceStopped();
+      };
+      
+      // Start the native service
+      final started = await NativeBackgroundLocationService.startService(userId);
+      if (started) {
+        developer.log('Native background location service started successfully');
+        return true;
+      } else {
+        developer.log('Failed to start native background location service');
+        return false;
+      }
+    } catch (e) {
+      developer.log('Error starting native background location service: $e');
+      return false;
+    }
+  }
+  
+  /// Stop native background location service
+  Future<void> _stopNativeBackgroundService() async {
+    try {
+      developer.log('Stopping native background location service');
+      await NativeBackgroundLocationService.stopService();
+      
+      // Clear callbacks
+      NativeBackgroundLocationService.onLocationUpdate = null;
+      NativeBackgroundLocationService.onError = null;
+      NativeBackgroundLocationService.onServiceStopped = null;
+    } catch (e) {
+      developer.log('Error stopping native background location service: $e');
+    }
+  }
+  
+  void _startHealthMonitoring() {
+    _healthCheckTimer?.cancel();
+    
+    _healthCheckTimer = Timer.periodic(_healthCheckInterval, (timer) {
+      _performHealthCheck();
+    });
+  }
+  
+  void _stopHealthMonitoring() {
+    _healthCheckTimer?.cancel();
+    _healthCheckTimer = null;
+  }
+  
+  Future<void> _performHealthCheck() async {
+    if (!_isTracking || _currentUserId == null) return;
+    
+    try {
+      // Check if native service is still healthy
+      final nativeHealthy = await NativeBackgroundLocationService.isServiceHealthy();
+      
+      // Check if persistent service is still healthy
+      final persistentHealthy = PersistentLocationService.isTracking;
+      
+      if (!nativeHealthy && !persistentHealthy) {
+        developer.log('Health check failed for both services, attempting to restart');
         
-        // Clear from Realtime Database
-        await _realtimeDb.ref('locations/$currentUserId').remove();
-        _log('Removed user from Realtime DB');
+        // Try to restart native service first
+        final nativeRestarted = await _startNativeBackgroundService(_currentUserId!);
+        
+        // If native fails, try persistent service
+        if (!nativeRestarted) {
+          await PersistentLocationService.startTracking(
+            userId: _currentUserId!,
+            onLocationUpdate: _handleLocationUpdate,
+            onError: _handleLocationError,
+            onServiceStopped: _handleServiceStopped,
+          );
+        }
+      } else if (!nativeHealthy) {
+        developer.log('Native service unhealthy, attempting to restart');
+        await _startNativeBackgroundService(_currentUserId!);
+      } else if (!persistentHealthy) {
+        developer.log('Persistent service unhealthy, attempting to restart');
+        await PersistentLocationService.startTracking(
+          userId: _currentUserId!,
+          onLocationUpdate: _handleLocationUpdate,
+          onError: _handleLocationError,
+          onServiceStopped: _handleServiceStopped,
+        );
       }
-      
-      _currentAddress = null;
-      _city = null;
-      _country = null;
-      _postalCode = null;
-      
-      if (_mounted) notifyListeners();
     } catch (e) {
-      _log('Error stopping tracking: $e');
+      developer.log('Error during health check: $e');
     }
   }
-
-  // Get address from coordinates
-  Future<void> _getAddressFromCoordinates(double lat, double lng) async {
+  
+  void _startSyncMonitoring() {
+    _syncTimer?.cancel();
+    
+    _syncTimer = Timer.periodic(_syncInterval, (timer) {
+      _performSyncCheck();
+    });
+  }
+  
+  void _stopSyncMonitoring() {
+    _syncTimer?.cancel();
+    _syncTimer = null;
+  }
+  
+  Future<void> _performSyncCheck() async {
+    if (!_isTracking || _currentUserId == null) return;
+    
     try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
+      // Ensure user status is correctly synced
+      await _updateLocationSharingStatus(_currentUserId!, true);
       
-      if (placemarks.isNotEmpty) {
-        final place = placemarks.first;
-        _currentAddress = '${place.street}, ${place.subLocality}';
-        _city = place.locality;
-        _country = place.country;
-        _postalCode = place.postalCode;
-        _status = 'Address updated';
-      }
+      // Send heartbeat
+      await _sendHeartbeat(_currentUserId!);
     } catch (e) {
-      _error = 'Failed to get address: ${e.toString()}';
-      _status = 'Error getting address';
+      developer.log('Error during sync check: $e');
     }
   }
-
-  // Public method to get address for coordinates
-  Future<Map<String, String?>> getAddressForCoordinates(double lat, double lng) async {
-    try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
-      
-      if (placemarks.isNotEmpty) {
-        final place = placemarks.first;
-        return {
-          'address': '${place.street}, ${place.subLocality}',
-          'city': place.locality,
-          'postalCode': place.postalCode,
-        };
-      }
-      return {
-        'address': 'Unknown location',
-        'city': null,
-        'postalCode': null,
-      };
-    } catch (e) {
-      return {
-        'address': 'Address unavailable',
-        'city': null,
-        'postalCode': null,
-      };
-    }
-  }
-
-  // Update location sharing status in BOTH databases for INSTANT real-time status
+  
   Future<void> _updateLocationSharingStatus(String userId, bool isSharing) async {
-    _log('Updating Firebase status: $isSharing for ${userId.substring(0, 8)}');
     try {
-      // Update Realtime Database FIRST for INSTANT synchronization (10-50ms)
-      await _realtimeDb.ref('users/$userId/locationSharingEnabled').set(isSharing);
-      _log('Successfully updated Realtime DB status');
+      // Update Realtime Database for instant sync
+      await _realtimeDb.ref('users/$userId').update({
+        'locationSharingEnabled': isSharing,
+        'lastSeen': ServerValue.timestamp,
+      });
       
-      // Then update Firestore for data persistence and queries
+      // Update Firestore for persistence
       await FirebaseFirestore.instance.collection('users').doc(userId).update({
         'locationSharingEnabled': isSharing,
-        'locationSharingUpdatedAt': FieldValue.serverTimestamp(),
-        'lastOnline': FieldValue.serverTimestamp(),
-        if (!isSharing) 'location': null, // Clear location when sharing is disabled
-      });
-      _log('Successfully updated Firestore status');
-      
-      // If stopping sharing, also clear from Realtime DB locations
-      if (!isSharing) {
-        await _realtimeDb.ref('locations/$userId').remove();
-        _log('Cleared location from Realtime DB');
-      }
-    } catch (e) {
-      _log('Error updating location sharing status: $e');
-    }
-  }
-
-  // Clean up user data when app is being uninstalled or permanently closed
-  Future<void> cleanupUserData() async {
-    _log('=== CLEANUP USER DATA CALLED ===');
-    try {
-      final userId = await _getCurrentUserId();
-      if (userId != null) {
-        _log('Cleaning up data for user: ${userId.substring(0, 8)}');
-        
-        // Mark user as offline and clear all location data
-        await _markUserAsOfflineForUninstall(userId);
-        
-        // Clear local preferences
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.clear();
-        _log('Cleared local preferences');
-      }
-    } catch (e) {
-      _log('Error during cleanup: $e');
-    }
-  }
-
-  // Mark user as offline specifically for app uninstall/removal
-  Future<void> _markUserAsOfflineForUninstall(String userId) async {
-    _log('Marking user as offline for app uninstall: ${userId.substring(0, 8)}');
-    try {
-      // Remove from Realtime Database locations (makes user appear offline immediately)
-      await _realtimeDb.ref('locations/$userId').remove();
-      _log('Removed user from Realtime DB locations');
-      
-      // Update Realtime Database status to indicate app was uninstalled
-      await _realtimeDb.ref('users/$userId').update({
-        'locationSharingEnabled': false,
-        'appUninstalled': true,
-        'lastSeen': ServerValue.timestamp,
-        'appLastActive': ServerValue.timestamp,
-      });
-      _log('Updated Realtime DB user status for uninstall');
-      
-      // Update Firestore to mark as offline due to uninstall
-      await FirebaseFirestore.instance.collection('users').doc(userId).update({
-        'locationSharingEnabled': false,
-        'appUninstalled': true,
-        'location': null, // Clear location data
         'lastSeen': FieldValue.serverTimestamp(),
-        'appLastActive': FieldValue.serverTimestamp(),
-        'lastOnline': FieldValue.serverTimestamp(),
       });
-      _log('Updated Firestore user status for uninstall');
       
+      if (!isSharing) {
+        // Clear location data when stopping
+        await _realtimeDb.ref('locations/$userId').remove();
+        await FirebaseFirestore.instance.collection('users').doc(userId).update({
+          'location': null,
+        });
+      }
     } catch (e) {
-      _log('Error marking user as offline for uninstall: $e');
+      developer.log('Error updating location sharing status: $e');
+    }
+  }
+  
+  Future<void> _sendHeartbeat(String userId) async {
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      
+      await _realtimeDb.ref('users/$userId').update({
+        'lastHeartbeat': timestamp,
+        'appUninstalled': false,
+      });
+      
+      await FirebaseFirestore.instance.collection('users').doc(userId).update({
+        'lastHeartbeat': FieldValue.serverTimestamp(),
+        'appUninstalled': false,
+      });
+    } catch (e) {
+      developer.log('Error sending heartbeat: $e');
+    }
+  }
+  
+  Future<void> _checkProximityNotifications() async {
+    if (_currentLocation == null || _currentUserId == null) return;
+    
+    try {
+      await ProximityService.checkProximityForAllFriends(
+        userLocation: _currentLocation!,
+        friendLocations: _userLocations,
+        friendSharingStatus: _userSharingStatus,
+        currentUserId: _currentUserId!,
+      );
+    } catch (e) {
+      developer.log('Error checking proximity notifications: $e');
+    }
+  }
+  
+  /// Force an immediate location update (for "Update Now" functionality)
+  Future<bool> forceLocationUpdate() async {
+    if (!_isTracking || _currentUserId == null) {
+      developer.log('Cannot force location update: not tracking or no user ID');
+      return false;
+    }
+
+    try {
+      developer.log('Forcing immediate location update...');
+      _status = 'Getting current location...';
+      if (_mounted) notifyListeners();
+
+      // CRITICAL: Try to trigger Universal Location Integration Service "Update Now" first
+      // This provides the same functionality as the notification button for ALL users
+      final universalTriggered = await UniversalLocationIntegrationService.triggerUpdateNow();
+      if (universalTriggered) {
+        developer.log('Universal service update triggered successfully');
+        _status = 'Location updated via universal service';
+        if (_mounted) notifyListeners();
+        return true;
+      }
+
+      // Fallback to native service if universal service fails
+      final nativeTriggered = await NativeBackgroundLocationService.triggerUpdateNow();
+      if (nativeTriggered) {
+        developer.log('Native service update triggered successfully');
+        _status = 'Location updated via native service';
+        if (_mounted) notifyListeners();
+        return true;
+      }
+
+      // Fallback to manual location update if both services fail
+      developer.log('Both universal and native services failed, using manual update');
+
+      // Check location service status
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _error = 'Location services are disabled';
+        _status = 'Location services disabled';
+        if (_mounted) notifyListeners();
+        return false;
+      }
+
+      // Check permissions
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        _error = 'Location permission denied';
+        _status = 'Location permission denied';
+        if (_mounted) notifyListeners();
+        return false;
+      }
+
+      // Get high-accuracy location with longer timeout
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 30),
+        forceAndroidLocationManager: false,
+      );
+
+      final newLocation = LatLng(position.latitude, position.longitude);
+      
+      // Update current location
+      _currentLocation = newLocation;
+      _userLocations[_currentUserId!] = newLocation;
+      
+      // Update address
+      await _updateAddressFromCoordinates(newLocation.latitude, newLocation.longitude);
+      
+      // Sync to Firebase immediately
+      await _syncLocationToFirebase(newLocation);
+
+      _status = 'Location updated successfully';
+      if (_mounted) notifyListeners();
+      
+      developer.log('Force location update successful: ${newLocation.latitude}, ${newLocation.longitude}');
+      return true;
+    } catch (e) {
+      developer.log('Error forcing location update: $e');
+      _error = 'Failed to update location: $e';
+      _status = 'Location update failed';
+      if (_mounted) notifyListeners();
+      return false;
+    }
+  }
+  
+  /// Get address for coordinates
+  Future<Map<String, String?>?> getAddressForCoordinates(double latitude, double longitude) async {
+    try {
+      // This would use geocoding to get address
+      // For now, return a simple format as a map
+      return {
+        'address': 'Lat: ${latitude.toStringAsFixed(6)}, Lng: ${longitude.toStringAsFixed(6)}',
+        'city': 'Unknown City',
+        'country': 'Unknown Country',
+        'postalCode': 'Unknown',
+      };
+    } catch (e) {
+      developer.log('Error getting address for coordinates: $e');
+      return null;
+    }
+  }
+  
+  /// Request battery optimization exemption
+  Future<bool> requestBatteryOptimizationExemption() async {
+    try {
+      developer.log('Requesting battery optimization exemption');
+      await BatteryOptimizationService.requestDisableBatteryOptimization();
+      return true;
+    } catch (e) {
+      developer.log('Error requesting battery optimization exemption: $e');
+      return false;
+    }
+  }
+  
+  /// Open app settings manually
+  Future<void> openAppSettingsManually() async {
+    try {
+      developer.log('Opening app settings manually');
+      if (Platform.isAndroid) {
+        // Open the specific Battery Optimization settings via platform channel
+        await BatteryOptimizationService.requestDisableBatteryOptimization();
+      } else {
+        // On iOS/macOS, open the app's settings page
+        await openAppSettings();
+      }
+    } catch (e) {
+      developer.log('Error opening app settings: $e');
+    }
+  }
+  
+  /// Update address from coordinates
+  Future<void> _updateAddressFromCoordinates(double latitude, double longitude) async {
+    try {
+      // This would use geocoding to get address components
+      // For now, set basic values
+      _currentAddress = 'Lat: ${latitude.toStringAsFixed(6)}, Lng: ${longitude.toStringAsFixed(6)}';
+      _city = 'Unknown City';
+      _country = 'Unknown Country';
+      _postalCode = 'Unknown';
+    } catch (e) {
+      developer.log('Error updating address from coordinates: $e');
     }
   }
 
   @override
   void dispose() {
-    _log('=== DISPOSE CALLED ===');
-    _mounted = false; // Mark as unmounted first
+    developer.log('Disposing LocationProvider');
     
-    // Stop heartbeat mechanism
-    _stopHeartbeat();
+    _mounted = false;
     
-    // Clean up user data when app is being disposed
-    cleanupUserData();
+    // Stop all monitoring
+    _stopHealthMonitoring();
+    _stopSyncMonitoring();
+    
+    // Cancel subscriptions
+    _realtimeLocationSubscription?.cancel();
+    _realtimeStatusSubscription?.cancel();
+    _fallbackLocationSubscription?.cancel();
     
     // Dispose performance optimizer
     _performanceOptimizer.dispose();
     
-    _notificationDebounceTimer?.cancel(); // Cancel debounce timer
-    _locationSubscription?.cancel();
-    _friendsLocationSubscription?.cancel();
-    _userStatusSubscription?.cancel();
-    _realtimeStatusSubscription?.cancel();
-    _realtimeLocationSubscription?.cancel();
-    _locationServiceSubscription?.cancel();
     super.dispose();
   }
 }

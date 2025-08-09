@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 // import 'package:firebase_crashlytics/firebase_crashlytics.dart'; // Commented out - not in dependencies
 import '../config/environment.dart';
 

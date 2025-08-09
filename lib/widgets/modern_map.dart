@@ -8,7 +8,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_animations/flutter_map_animations.dart';
-import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart' as fmtc;
 import 'package:latlong2/latlong.dart' as latlong;
 import 'package:provider/provider.dart';
 import 'package:sensors_plus/sensors_plus.dart';
@@ -112,7 +111,7 @@ class _ModernMapState extends State<ModernMap>
     _cachedMarkers = [];
     _startMagnetometer();
     WidgetsBinding.instance.addObserver(this);
-    fmtc.FMTCStore('mainCache').manage.create();
+    // Removed tile caching initialization
   }
 
   void _rebuildMarkerCache() {
@@ -289,7 +288,7 @@ class _ModernMapState extends State<ModernMap>
                   maxZoom: 20,
                   minZoom: 2,
                   retinaMode: MediaQuery.of(context).devicePixelRatio > 1.0,
-                  tileProvider: fmtc.FMTCStore('mainCache').getTileProvider(),
+                  // Removed tile caching provider
                   errorTileCallback: (TileImage tile, Object error, StackTrace? stackTrace) {
                     debugPrint('Tile error at ${tile.coordinates}: $error');
                   },
@@ -513,7 +512,7 @@ class _UserLocationMarker extends StatelessWidget {
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.2),
+                color: Colors.black.withValues(alpha: 0.2),
                 blurRadius: 4,
                 offset: const Offset(0, 2),
               ),
@@ -560,7 +559,7 @@ class _CompassWidget extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
