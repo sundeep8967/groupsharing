@@ -4,7 +4,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/user_model.dart';
 import '../../models/location_model.dart';
 import '../../services/friend_service.dart';
-import '../../widgets/custom_map.dart';
+import 'package:latlong2/latlong.dart' as latlong;
+import '../../widgets/smooth_modern_map.dart';
+import '../../models/map_marker.dart';
 
 class GoogleFamilyDashboardScreen extends StatefulWidget {
   const GoogleFamilyDashboardScreen({Key? key}) : super(key: key);
@@ -22,6 +24,43 @@ class _GoogleFamilyDashboardScreenState extends State<GoogleFamilyDashboardScree
   Map<String, LocationModel?> _memberLocations = {};
   bool _isLoading = true;
   String? _currentUserId;
+
+  latlong.LatLng _computeInitialCenter() {
+    if (_memberLocations.isEmpty) {
+      return const latlong.LatLng(37.7749, -122.4194);
+    }
+    final valid = _memberLocations.values.whereType<LocationModel>().toList();
+    if (valid.isEmpty) {
+      return const latlong.LatLng(37.7749, -122.4194);
+    }
+    double sumLat = 0;
+    double sumLng = 0;
+    for (final loc in valid) {
+      sumLat += loc.latitude;
+      sumLng += loc.longitude;
+    }
+    return latlong.LatLng(sumLat / valid.length, sumLng / valid.length);
+  }
+
+  latlong.LatLng? _getCurrentUserLocation() {
+    final current = _currentUserId != null ? _memberLocations[_currentUserId!] : null;
+    if (current == null) return null;
+    return latlong.LatLng(current.latitude, current.longitude);
+  }
+
+  Set<MapMarker> _buildMarkers() {
+    final markers = <MapMarker>{};
+    for (final member in _familyMembers) {
+      final location = _memberLocations[member.uid];
+      if (location == null) continue;
+      markers.add(MapMarker(
+        id: member.uid,
+        point: latlong.LatLng(location.latitude, location.longitude),
+        label: member.displayName,
+      ));
+    }
+    return markers;
+  }
 
   @override
   void initState() {
@@ -205,9 +244,11 @@ class _GoogleFamilyDashboardScreenState extends State<GoogleFamilyDashboardScree
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(16),
-                child: CustomMap(
-                  familyMembers: _familyMembers,
-                  memberLocations: _memberLocations,
+                child: SmoothModernMap(
+                  initialPosition: _computeInitialCenter(),
+                  userLocation: _getCurrentUserLocation(),
+                  markers: _buildMarkers(),
+                  showUserLocation: true,
                 ),
               ),
             ),

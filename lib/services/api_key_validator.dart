@@ -71,20 +71,7 @@ class ApiKeyValidator {
   
   /// Validate Map service keys
   static Map<String, ValidationResult> _validateMapServiceKeys() {
-    return {
-      'Google Maps API Key': _validateKey(
-        ApiKeys.googleMapsApiKey,
-        'AIzaSy',
-        'Google Maps API key should start with AIzaSy',
-        isOptional: true,
-      ),
-      'Mapbox Access Token': _validateKey(
-        ApiKeys.mapboxAccessToken,
-        'pk.',
-        'Mapbox access token should start with pk.',
-        isOptional: true,
-      ),
-    };
+    return {};
   }
   
   /// Validate Third-party service keys
@@ -296,15 +283,7 @@ class ApiKeyValidator {
       instructions.add('');
     }
     
-    // Check for missing Google Maps key
-    if (report.mapServicesStatus['Google Maps API Key']?.status == ValidationStatus.missing) {
-      instructions.add('🗺️ Google Maps Setup:');
-      instructions.add('1. Go to https://console.cloud.google.com/apis/credentials');
-      instructions.add('2. Create or select an API key');
-      instructions.add('3. Enable Maps SDK for Android/iOS');
-      instructions.add('4. Add the key to your .env file');
-      instructions.add('');
-    }
+    // Google Maps setup removed (no longer used)
     
     // Check for missing Mapbox token
     if (report.mapServicesStatus['Mapbox Access Token']?.status == ValidationStatus.missing) {

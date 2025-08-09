@@ -536,7 +536,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         return Listener(
           onPointerUp: (_) {
             // Save map center/zoom after user interaction
-            // (You may need to expose mapController from ModernMap for this)
           },
           child: Stack(
             children: [
@@ -710,6 +709,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final currentLocation = locationProvider.currentLocation!;
     final lat = currentLocation.latitude.toStringAsFixed(6);
     final lng = currentLocation.longitude.toStringAsFixed(6);
+    final hasAddress = (locationProvider.currentAddress != null && locationProvider.currentAddress!.trim().isNotEmpty);
     
     return AnimatedOpacity(
       opacity: _showLocationInfo ? 1.0 : 0.0,
@@ -757,16 +757,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 8),
               
-              // Coordinates
-              _buildInfoRow(
-                Icons.gps_fixed,
-                'Coordinates',
-                'Lat: $lat\nLng: $lng',
-              ),
-              
-              // Address information
-              const SizedBox(height: 12),
-              if (locationProvider.currentAddress != null) 
+              // Address (primary)
+              if (hasAddress)
                 _buildInfoRow(
                   Icons.location_on,
                   'Address',
@@ -780,6 +772,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     fontSize: 13,
                     color: Colors.grey,
                   ),
+                ),
+              
+              // Address information
+              const SizedBox(height: 12),
+              // Show coordinates only when no address yet (or as debug info)
+              if (!hasAddress)
+                _buildInfoRow(
+                  Icons.gps_fixed,
+                  'Coordinates',
+                  'Lat: $lat\nLng: $lng',
                 ),
               
               if (locationProvider.city != null) ...[

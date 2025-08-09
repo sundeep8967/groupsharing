@@ -37,14 +37,5 @@ class Environment {
     return errors;
   }
 
-  /// Gets the appropriate map API key
-  /// Returns a fallback key for development if main key is missing
-  static String getMapApiKey() {
-    // In debug mode, return a placeholder that won't work but won't crash
-    if (isDebugMode) {
-      return 'DEBUG_MODE_PLACEHOLDER_KEY';
-    }
-    
-    throw Exception('Map API key not configured. Please configure Google Maps or Mapbox API key.');
-  }
+  // Map API keys not required (using OpenStreetMap tiles). Method removed.
 }
