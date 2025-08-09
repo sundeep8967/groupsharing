@@ -13,6 +13,7 @@ import 'screens/main/main_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/comprehensive_permission_screen.dart';
 import 'screens/friends/friend_details_screen.dart';
+import 'screens/profile/location_permissions_screen.dart';
 import 'services/comprehensive_permission_service.dart';
 import 'services/life360_location_service.dart';
 import 'services/bulletproof_location_service.dart';
@@ -122,12 +123,30 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   LocationProvider? _locationProvider;
   bool _permissionsChecked = false;
   bool _permissionsGranted = false;
+  bool _permissionsSetupComplete = false; // user completed the setup screen at least once
+  bool _prefsLoaded = false; // wait until SharedPreferences is loaded
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadPermissionsSetupFlag();
     _checkPermissions();
+  }
+
+  Future<void> _loadPermissionsSetupFlag() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _permissionsSetupComplete = prefs.getBool('permissions_setup_complete') ?? false;
+        _prefsLoaded = true;
+      });
+    } catch (e) {
+      setState(() {
+        _permissionsSetupComplete = false;
+        _prefsLoaded = true;
+      });
+    }
   }
   
   Future<void> _checkPermissions() async {
@@ -177,6 +196,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void _onPermissionsGranted() {
     setState(() {
       _permissionsGranted = true;
+      _permissionsSetupComplete = true;
+    });
+    // Persist the setup completion so we don't show the screen again
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setBool('permissions_setup_complete', true);
     });
   }
 
@@ -307,6 +331,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           '/main': (context) => const MainScreen(),
           '/onboarding': (context) => const OnboardingScreen(),
           '/performance-monitor': (context) => const PerformanceMonitorScreen(),
+          '/location-permissions': (context) => const LocationPermissionsScreen(),
         },
         onGenerateRoute: (settings) {
           // Handle dynamic routes with arguments
@@ -332,8 +357,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
   
   Widget _buildHome() {
-    // Show loading while checking permissions
-    if (!_permissionsChecked) {
+    // Show loading until both prefs and permission checks are done
+    if (!_prefsLoaded || !_permissionsChecked) {
       return const Scaffold(
         body: Center(
           child: Column(
@@ -341,14 +366,20 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('Checking permissions...'),
+              Text('Preparing app...'),
             ],
           ),
         ),
       );
     }
-    
-    // Show comprehensive permission screen if permissions not granted
+    // Always gate login behind the permission setup screen at least once
+    // Show the comprehensive permission screen if the user hasn't completed setup yet
+    if (!_permissionsSetupComplete) {
+      return ComprehensivePermissionScreen(
+        onPermissionsGranted: _onPermissionsGranted,
+      );
+    }
+    // If setup was completed previously but permissions were revoked, show the screen again
     if (!_permissionsGranted) {
       return ComprehensivePermissionScreen(
         onPermissionsGranted: _onPermissionsGranted,

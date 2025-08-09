@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -23,6 +24,7 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.provider.Settings;
 import android.app.Activity;
+import android.app.AlarmManager;
 
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.database.DatabaseReference;
@@ -740,4 +742,71 @@ public class BackgroundLocationService extends Service implements LocationListen
             }
         }
     }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        Log.w(TAG, "onTaskRemoved called - scheduling service restart");
+        try {
+            // Persist state so attemptServiceRecovery can restore
+            if (currentUserId != null) {
+                BootReceiver.saveTrackingState(this, true, currentUserId);
+            }
+
+            // Schedule a quick restart of this foreground service
+            scheduleServiceRestart(2000); // 2 seconds
+        } catch (Exception e) {
+            Log.e(TAG, "Error handling onTaskRemoved: " + e.getMessage());
+        }
+        
+        // Intentionally not calling super to avoid default kill behavior
+    }
+
+/**
+ * Schedule a service restart via AlarmManager. Uses foreground service on O+.
+ */
+private void scheduleServiceRestart(long delayMs) {
+    try {
+        Intent restartIntent = new Intent(this, BackgroundLocationService.class);
+        if (currentUserId != null) {
+            restartIntent.putExtra(EXTRA_USER_ID, currentUserId);
+        }
+
+        int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+            ? PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
+            : PendingIntent.FLAG_UPDATE_CURRENT;
+
+        PendingIntent pi;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            pi = PendingIntent.getForegroundService(this, 10001, restartIntent, flags);
+        } else {
+            pi = PendingIntent.getService(this, 10001, restartIntent, flags);
+        }
+
+        AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+        if (am == null) {
+            Log.e(TAG, "AlarmManager is null; cannot schedule restart");
+            return;
+        }
+
+        long triggerAt = System.currentTimeMillis() + Math.max(0, delayMs);
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+            } else {
+                am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+            }
+            Log.d(TAG, "Service restart scheduled in " + delayMs + "ms");
+        } catch (SecurityException se) {
+            // Some devices/versions gate exact alarms; fall back to inexact
+            Log.w(TAG, "Exact alarm not permitted, using inexact: " + se.getMessage());
+            am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+        }
+    } catch (Exception e) {
+        Log.e(TAG, "Failed to schedule service restart: " + e.getMessage());
+    }
+}
+
 }

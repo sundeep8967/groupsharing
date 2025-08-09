@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../services/auth_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:developer' as developer;
+import 'package:geolocator/geolocator.dart';
 // Somewhere accessible, e.g., in auth_provider.dart or a separate auth_result.dart
 class AuthResult {
   final bool success;
@@ -104,7 +105,40 @@ class AuthProvider with ChangeNotifier {
       return AuthResult(success: false, error: e.toString()); // Pass the error message
     } finally {
       _isLoading = false;
+      // Fire-and-forget permission request after sign-in success
+      if (_user != null) {
+        _ensureLocationPermissions();
+      }
       notifyListeners();
+    }
+  }
+
+  // Minimal permission prompt right after successful login
+  Future<void> _ensureLocationPermissions() async {
+    try {
+      // Ensure services are enabled
+      final servicesOn = await Geolocator.isLocationServiceEnabled();
+      if (!servicesOn) {
+        await Geolocator.openLocationSettings();
+      }
+
+      // Request permissions
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+
+      if (perm == LocationPermission.deniedForever) {
+        await Geolocator.openAppSettings();
+        return;
+      }
+
+      // Try to upgrade to Always if possible (background)
+      if (perm == LocationPermission.whileInUse) {
+        await Geolocator.requestPermission();
+      }
+    } catch (e) {
+      developer.log('Permission prompt after login failed: $e');
     }
   }
 

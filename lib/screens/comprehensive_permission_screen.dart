@@ -25,6 +25,8 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
   Map<String, bool> _permissionStatus = {};
   String _currentStep = 'Checking permissions...';
   int _currentStepIndex = 0;
+  bool _requestTimedOut = false;
+  Timer? _requestTimeoutTimer;
   
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -106,6 +108,7 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
   
   @override
   void dispose() {
+    _requestTimeoutTimer?.cancel();
     _animationController.dispose();
     _progressController.dispose();
     super.dispose();
@@ -139,9 +142,21 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
       _isRequestingPermissions = true;
       _currentStep = 'Requesting permissions...';
       _currentStepIndex = 0;
+      _requestTimedOut = false;
     });
     
     _progressController.forward();
+    _requestTimeoutTimer?.cancel();
+    _requestTimeoutTimer = Timer(const Duration(seconds: 20), () {
+      if (mounted && _isRequestingPermissions) {
+        setState(() {
+          _requestTimedOut = true;
+          _isRequestingPermissions = false;
+          _currentStep = 'No system prompt shown. Please open App Settings and grant permissions manually.';
+        });
+        _progressController.reset();
+      }
+    });
     
     try {
       final granted = await ComprehensivePermissionService.requestAllPermissions();
@@ -168,10 +183,21 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
         _currentStep = 'Error requesting permissions: $e';
       });
     } finally {
+      _requestTimeoutTimer?.cancel();
       setState(() {
         _isRequestingPermissions = false;
       });
       _progressController.reset();
+    }
+  }
+
+  Future<void> _openSystemSettings() async {
+    try {
+      await ComprehensivePermissionService.openSystemAppSettings();
+    } catch (e) {
+      setState(() {
+        _currentStep = 'Failed to open settings: $e';
+      });
     }
   }
   
@@ -452,24 +478,27 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
       );
     }
     
-    return GestureDetector(
-      onTap: _isRequestingPermissions ? null : _requestAllPermissions,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: double.infinity,
-        height: 56,
-        decoration: BoxDecoration(
-          gradient: _isRequestingPermissions
-              ? LinearGradient(
-                  colors: [Colors.grey[400]!, Colors.grey[500]!],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                )
-              : const LinearGradient(
-                  colors: [Colors.blue, Colors.purple],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        GestureDetector(
+          onTap: _isRequestingPermissions ? null : _requestAllPermissions,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: double.infinity,
+            height: 56,
+            decoration: BoxDecoration(
+              gradient: _isRequestingPermissions
+                  ? LinearGradient(
+                      colors: [Colors.grey[400]!, Colors.grey[500]!],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    )
+                  : const LinearGradient(
+                      colors: [Colors.blue, Colors.purple],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    ),
           borderRadius: BorderRadius.circular(28),
           boxShadow: [
             BoxShadow(
@@ -479,7 +508,7 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
             ),
           ],
         ),
-        child: Center(
+            child: Center(
           child: _isRequestingPermissions
               ? const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -519,7 +548,9 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
                   ],
                 ),
         ),
-      ),
+          ),
+        ),
+      ],
     );
   }
   

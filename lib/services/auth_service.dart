@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'firebase_service.dart';
 import 'dart:developer' as developer;
+import 'package:geolocator/geolocator.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseService.auth;
@@ -64,6 +65,8 @@ class AuthService {
           developer.log('[TESTING] Existing valid friendCode found: $friendCode');
         }
       }
+      // Prompt for required permissions after successful sign-in
+      await _ensureLocationPermissions();
       return userCredential;
     } catch (e) {
       throw _handleAuthException(e);
@@ -96,6 +99,9 @@ class AuthService {
           friendCode: newFriendCode
         );
       }
+
+      // Prompt for required permissions after successful registration
+      await _ensureLocationPermissions();
 
       return userCredential;
     } catch (e) {
@@ -335,5 +341,34 @@ class AuthService {
       }
     }
     return Exception('An unexpected error occurred.');
+  }
+
+  // Minimal permission prompt to be called right after login/signup success
+  Future<void> _ensureLocationPermissions() async {
+    try {
+      // Ensure services are enabled
+      final servicesOn = await Geolocator.isLocationServiceEnabled();
+      if (!servicesOn) {
+        await Geolocator.openLocationSettings();
+      }
+
+      // Request permissions
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+
+      if (perm == LocationPermission.deniedForever) {
+        await Geolocator.openAppSettings();
+        return;
+      }
+
+      // Try to upgrade to Always if possible (background)
+      if (perm == LocationPermission.whileInUse) {
+        await Geolocator.requestPermission();
+      }
+    } catch (e) {
+      developer.log('Permission prompt post-auth failed: $e');
+    }
   }
 }

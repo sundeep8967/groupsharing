@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -12,6 +13,8 @@ import '../services/proximity_service.dart';
 import '../services/native_background_location_service.dart';
 import '../services/universal_location_integration_service.dart';
 import '../utils/performance_optimizer.dart';
+import '../services/battery_optimization_service.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -116,6 +119,51 @@ class LocationProvider with ChangeNotifier {
       return false;
     }
   }
+
+  /// Request all permissions needed for location sharing.
+  /// Returns true if permissions and services are in an acceptable state.
+  Future<bool> requestAllPermissions() async {
+    try {
+      // Ensure location services (GPS) are enabled
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        // Prompt user to enable location services
+        await Geolocator.openLocationSettings();
+        // Re-check after user interaction
+        final recheck = await Geolocator.isLocationServiceEnabled();
+        if (!recheck) {
+          developer.log('Location services remain disabled');
+          return false;
+        }
+      }
+
+      // Check and request location permissions
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        // Cannot request automatically; direct user to app settings
+        await Geolocator.openAppSettings();
+        return false;
+      }
+
+      // Attempt to upgrade to Always if possible (best for background)
+      if (permission == LocationPermission.whileInUse) {
+        final maybeUpgraded = await Geolocator.requestPermission();
+        if (maybeUpgraded != LocationPermission.always && maybeUpgraded != LocationPermission.whileInUse) {
+          developer.log('Location permission not granted to usable level');
+          return false;
+        }
+      }
+
+      return permission == LocationPermission.always || permission == LocationPermission.whileInUse;
+    } catch (e) {
+      developer.log('Error requesting permissions: $e');
+      return false;
+    }
+  }
   
   /// Start persistent location tracking
   Future<bool> startTracking(String userId) async {
@@ -132,6 +180,15 @@ class LocationProvider with ChangeNotifier {
     try {
       developer.log('Starting enhanced location tracking for user: ${userId.substring(0, 8)}');
       
+      // Ensure required permissions/services are granted before starting
+      final permsOk = await requestAllPermissions();
+      if (!permsOk) {
+        _error = 'Required permissions not granted';
+        _status = 'Permissions required';
+        if (_mounted) notifyListeners();
+        return false;
+      }
+
       _currentUserId = userId;
       _error = null;
       _status = 'Starting location tracking...';
@@ -830,9 +887,8 @@ class LocationProvider with ChangeNotifier {
   /// Request battery optimization exemption
   Future<bool> requestBatteryOptimizationExemption() async {
     try {
-      // This would request battery optimization exemption
-      // Implementation depends on platform-specific code
       developer.log('Requesting battery optimization exemption');
+      await BatteryOptimizationService.requestDisableBatteryOptimization();
       return true;
     } catch (e) {
       developer.log('Error requesting battery optimization exemption: $e');
@@ -843,9 +899,14 @@ class LocationProvider with ChangeNotifier {
   /// Open app settings manually
   Future<void> openAppSettingsManually() async {
     try {
-      // This would open app settings
-      // Implementation depends on platform-specific code
       developer.log('Opening app settings manually');
+      if (Platform.isAndroid) {
+        // Open the specific Battery Optimization settings via platform channel
+        await BatteryOptimizationService.requestDisableBatteryOptimization();
+      } else {
+        // On iOS/macOS, open the app's settings page
+        await openAppSettings();
+      }
     } catch (e) {
       developer.log('Error opening app settings: $e');
     }

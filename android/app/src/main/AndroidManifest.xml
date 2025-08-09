@@ -117,16 +117,6 @@
             android:isolatedProcess="false"
             android:process=":background_location" />
             
-        <!-- Ultra-Persistent Location Service for OnePlus devices -->
-        <service
-            android:name=".PersistentLocationService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="location"
-            android:stopWithTask="false"
-            android:directBootAware="true"
-            android:isolatedProcess="false"
-            android:process=":persistent_location" />
             
         <!-- Bulletproof Location Service -->
         <service
