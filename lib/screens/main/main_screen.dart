@@ -679,7 +679,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final location = entry.value;
       
       // Null safety checks
-      if (userId.isEmpty || location == null) continue;
+      if (userId.isEmpty) continue;
       
       // Skip current user - they're shown with the user location marker
       if (userId == currentUserId) continue;
@@ -699,8 +699,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     // Only update if markers actually changed and we're still mounted
     if (mounted && (_cachedMarkers.length != markers.length || 
         !_cachedMarkers.every((m) => markers.any((newM) => newM.id == m.id && newM.point == m.point)))) {
-      setState(() {
-        _cachedMarkers = markers;
+      // Defer setState to after the current build to avoid "setState during build" exceptions
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _cachedMarkers = markers;
+        });
       });
     }
   }

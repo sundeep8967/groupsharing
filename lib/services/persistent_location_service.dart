@@ -26,10 +26,15 @@ class PersistentLocationService {
   static String? _currentUserId;
   
   // Configuration
-  static const Duration _locationInterval = Duration(seconds: 15);
+  static const Duration _foregroundLocationInterval = Duration(seconds: 15);
+  static const Duration _backgroundLocationInterval = Duration(minutes: 3);
   static const Duration _heartbeatInterval = Duration(seconds: 30);
   static const double _distanceFilter = 10.0; // meters
   static const LocationAccuracy _desiredAccuracy = LocationAccuracy.high;
+
+  // Foreground/background mode
+  static bool _isInBackground = false;
+  static DateTime? _lastBgUploadAt;
   
   // Callbacks
   static Function(LatLng)? _onLocationUpdate;
@@ -58,6 +63,32 @@ class PersistentLocationService {
     } catch (e) {
       developer.log('Failed to initialize PersistentLocationService: $e');
       return false;
+    }
+  }
+
+  /// Switch background mode: when true, throttle uploads to every 3 minutes and
+  /// request a lower update rate from providers; when false, use foreground rate.
+  static Future<void> setBackgroundMode(bool background) async {
+    if (_isInBackground == background) return;
+    _isInBackground = background;
+    developer.log('PersistentLocationService: background mode = $background');
+
+    // Update native background service interval if available
+    final interval = _isInBackground ? _backgroundLocationInterval : _foregroundLocationInterval;
+    try {
+      final updated = await _channel.invokeMethod('updateLocationInterval', <String, dynamic>{
+        'locationInterval': interval.inMilliseconds,
+      });
+      developer.log('Native service interval update result: $updated');
+    } catch (e) {
+      // Fallback: restart services to apply new interval
+      developer.log('updateLocationInterval not available, restarting services to apply interval: $e');
+      if (_isTracking && _currentUserId != null) {
+        await _stopNativeBackgroundService();
+        await _stopFlutterLocationTracking();
+        await _startNativeBackgroundService(_currentUserId!);
+        await _startFlutterLocationTracking();
+      }
     }
   }
   
@@ -373,7 +404,7 @@ class PersistentLocationService {
     try {
       final result = await _channel.invokeMethod('startBackgroundLocationService', <String, dynamic>{
         'userId': userId,
-        'locationInterval': _locationInterval.inMilliseconds,
+        'locationInterval': (_isInBackground ? _backgroundLocationInterval : _foregroundLocationInterval).inMilliseconds,
         'distanceFilter': _distanceFilter,
         'desiredAccuracy': _desiredAccuracy.index,
       });
@@ -396,10 +427,29 @@ class PersistentLocationService {
   
   static Future<void> _startFlutterLocationTracking() async {
     try {
-      final locationSettings = LocationSettings(
-        accuracy: _desiredAccuracy,
-        distanceFilter: _distanceFilter.round(),
-      );
+      // Prefer platform-specific settings to control interval, especially on Android
+      LocationSettings locationSettings;
+      if (Platform.isAndroid) {
+        locationSettings = AndroidSettings(
+          accuracy: _desiredAccuracy,
+          distanceFilter: _distanceFilter.round(),
+          intervalDuration: _isInBackground ? _backgroundLocationInterval : _foregroundLocationInterval,
+          // Set foreground service notification config via native if needed
+        );
+      } else if (Platform.isIOS) {
+        locationSettings = AppleSettings(
+          accuracy: _desiredAccuracy,
+          distanceFilter: _distanceFilter.round(),
+          allowBackgroundLocationUpdates: true,
+          pauseLocationUpdatesAutomatically: false,
+          showBackgroundLocationIndicator: false,
+        );
+      } else {
+        locationSettings = LocationSettings(
+          accuracy: _desiredAccuracy,
+          distanceFilter: _distanceFilter.round(),
+        );
+      }
       
       _locationSubscription = Geolocator.getPositionStream(
         locationSettings: locationSettings,
@@ -515,6 +565,26 @@ class PersistentLocationService {
     if (_currentUserId == null) return;
     
     try {
+      // Throttle uploads when in background to every 3 minutes
+      if (_isInBackground) {
+        final now = DateTime.now();
+        if (_lastBgUploadAt != null) {
+          final elapsed = now.difference(_lastBgUploadAt!);
+          if (elapsed < _backgroundLocationInterval) {
+            // Still send to isolate for local processing, but skip Firebase write
+            _isolateSendPort?.send(<String, dynamic>{
+              'type': 'location_update',
+              'latitude': location.latitude,
+              'longitude': location.longitude,
+              'userId': _currentUserId,
+              'timestamp': now.millisecondsSinceEpoch,
+            });
+            return;
+          }
+        }
+        _lastBgUploadAt = now;
+      }
+
       // Send to background isolate for processing
       _isolateSendPort?.send(<String, dynamic>{
         'type': 'location_update',

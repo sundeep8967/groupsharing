@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.sundeep.groupsharing">
-    
+
     <!-- Required permissions -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -9,71 +9,54 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- Needed to prompt user to disable battery optimization -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
-    
-    <!-- Notification permissions -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-    
-    <!-- Critical permissions for background location -->
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Android 14 (API 34) requires this for location foreground services -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-    
-    <!-- Additional permissions for persistent background location -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    
-    <!-- Critical permissions for persistent location like Life360 -->
-    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
-    
-    <!-- Battery optimization and power management -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.DEVICE_POWER" />
-    
-    <!-- Auto-start permissions for different manufacturers -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.QUICKBOOT_POWERON" />
-    <uses-permission android:name="com.miui.powerkeeper.permission.BACKGROUND_APP_PERMISSION" />
-    <uses-permission android:name="oppo.permission.OPPO_COMPONENT_SAFE" />
-    <uses-permission android:name="com.huawei.permission.external_app_settings.USE_COMPONENT" />
-    
-    <!-- Permissions for native services -->
-    <!-- Emergency service permissions -->
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-    <uses-permission android:name="android.permission.CALL_PRIVILEGED" />
-    
-    <!-- Sensor permissions for driving detection -->
-    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
-    
-    <!-- Audio permissions for emergency alerts -->
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    
+
+<!-- Notification permissions -->
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<uses-permission android:name="android.permission.VIBRATE" />
+<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+<!-- Critical permissions for background location -->
+<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS" />
+<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+<uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+<!-- Android 14 (API 34) requires this for location foreground services -->
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+<!-- Additional permissions for persistent background location -->
+<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+<uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+<!-- Remove storage/keyguard legacy perms not needed for location sharing -->
+<!-- Remove risky/vendor/system-only permissions to satisfy Play policies -->
+<!-- (CHANGE_NETWORK_STATE, DEVICE_POWER, vendor auto-start) removed -->
+
+<!-- Permissions for native services -->
+<!-- Emergency service permissions -->
+<uses-permission android:name="android.permission.CALL_PHONE" />
+<!-- CALL_PRIVILEGED is system-only; do not request to avoid install failures -->
+
+<!-- Sensor permissions for driving detection -->
+<uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+
+<!-- Audio permissions for emergency alerts -->
+<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <application
         android:name="${applicationName}"
         android:label="GroupSharing"
         android:icon="@mipmap/launcher_icon"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-        
-            
+
         <!-- Google Play Services Version -->
         <meta-data
             android:name="com.google.android.gms.version"
             android:value="@integer/google_play_services_version" />
-            
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -83,10 +66,6 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-            <!-- Specifies an Android theme to apply to this Activity as soon as
-                 the Android process has started. This theme is visible to the user
-                 while the Flutter UI initializes. After that, this theme continues
-                 to determine the Window background behind the Flutter UI. -->
             <!-- Deep linking -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -96,11 +75,10 @@
                     android:scheme="groupsharing"
                     android:host="addfriend" />
             </intent-filter>
-            
+
             <meta-data
-              android:name="io.flutter.embedding.android.NormalTheme"
-              android:resource="@style/NormalTheme"
-              />
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme"/>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -116,8 +94,7 @@
             android:directBootAware="true"
             android:isolatedProcess="false"
             android:process=":background_location" />
-            
-            
+
         <!-- Bulletproof Location Service -->
         <service
             android:name=".BulletproofLocationService"
@@ -128,7 +105,7 @@
             android:directBootAware="true"
             android:isolatedProcess="false"
             android:process=":bulletproof_location" />
-            
+
         <!-- Persistent Foreground Notification Service -->
         <service
             android:name=".PersistentForegroundNotificationService"
@@ -139,31 +116,31 @@
             android:directBootAware="true"
             android:isolatedProcess="false"
             android:process=":persistent_notification" />
-        
+
         <!-- Native Driving Detection Service -->
         <service
             android:name=".DrivingDetectionService"
             android:enabled="true"
             android:exported="false" />
-        
+
         <!-- Native Emergency Service -->
         <service
             android:name=".EmergencyService"
             android:enabled="true"
             android:exported="false" />
-        
+
         <!-- Native Geofence Service -->
         <service
             android:name=".GeofenceService"
             android:enabled="true"
             android:exported="false" />
-        
+
         <!-- Geofence Transition Receiver -->
         <receiver
             android:name=".GeofenceTransitionReceiver"
             android:enabled="true"
             android:exported="false" />
-        
+
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
@@ -176,28 +153,40 @@
                 <action android:name="android.intent.action.PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.REBOOT" />
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
-                <action android:name="com.miui.powerkeeper.configure_app_background" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="package" />
             </intent-filter>
         </receiver>
+
+        <!-- Alarm receiver for periodic watchdog heartbeat -->
+        <receiver
+            android:name=".AlarmReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- FCM push service used to restart tracking if OEM kills the app -->
+        <service
+            android:name=".PushMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Required for background_locator_2 background service -->
         <service android:name="rekab.app.background_locator.IsolateHolderService" android:exported="false" />
-        <!-- Don't delete the meta-data below.
-             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+
+        <!-- Flutter embedding marker -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
-    <!-- Required to query activities that can process text, see:
-         https://developer.android.com/training/package-visibility and
-         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
 
-         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
     </queries>
+
 </manifest>

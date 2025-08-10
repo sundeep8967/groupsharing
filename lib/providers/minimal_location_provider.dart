@@ -4,9 +4,12 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'location_provider_interface.dart';
 
 /// ULTRA-MINIMAL Location Provider - Zero lag, maximum performance
-class MinimalLocationProvider extends ChangeNotifier {
+/// Deprecated: Use `LocationProvider` instead.
+/// Minimal provider kept only to avoid breaking builds; will be removed.
+class MinimalLocationProvider extends ChangeNotifier implements ILocationProvider {
   // Core state - minimal variables only
   bool _isTracking = false;
   bool _isInitialized = false;
@@ -26,10 +29,16 @@ class MinimalLocationProvider extends ChangeNotifier {
   LatLng? get currentLocation => _currentLocation;
   String get status => _status;
   Map<String, LatLng> get userLocations => Map.unmodifiable(_userLocations);
+  String? get error => null;
+  String? get currentAddress => null;
+  String? get city => null;
+  String? get country => null;
+  String? get postalCode => null;
+  List<String> get nearbyUsers => const [];
   
   /// Initialize with minimal overhead
-  Future<void> initialize() async {
-    if (_isInitialized) return;
+  Future<bool> initialize() async {
+    if (_isInitialized) return true;
     
     try {
       // Simple initialization - no complex setup
@@ -50,16 +59,18 @@ class MinimalLocationProvider extends ChangeNotifier {
       }
       
       notifyListeners();
+      return true;
     } catch (e) {
       debugPrint('MinimalLocationProvider init error: $e');
       _isInitialized = true;
       notifyListeners();
+      return true;
     }
   }
   
   /// Start tracking with minimal overhead
-  Future<void> startTracking(String userId) async {
-    if (_isTracking || userId.isEmpty) return;
+  Future<bool> startTracking(String userId) async {
+    if (_isTracking || userId.isEmpty) return false;
     
     try {
       _status = 'Starting location tracking...';
@@ -72,7 +83,7 @@ class MinimalLocationProvider extends ChangeNotifier {
         if (permission == LocationPermission.denied) {
           _status = 'Location permissions denied';
           notifyListeners();
-          return;
+          return false;
         }
       }
       
@@ -88,16 +99,18 @@ class MinimalLocationProvider extends ChangeNotifier {
       _startLocationUpdates(userId);
       
       notifyListeners();
+      return true;
     } catch (e) {
       debugPrint('Error starting tracking: $e');
       _isTracking = false;
       _status = 'Error starting location tracking';
       notifyListeners();
+      return false;
     }
   }
   
   /// Stop tracking immediately
-  Future<void> stopTracking() async {
+  Future<bool> stopTracking() async {
     _isTracking = false;
     _status = 'Location sharing stopped';
     
@@ -114,6 +127,7 @@ class MinimalLocationProvider extends ChangeNotifier {
     }
     
     notifyListeners();
+    return true;
   }
   
   /// Simple location updates - no complex logic
@@ -159,9 +173,9 @@ class MinimalLocationProvider extends ChangeNotifier {
   }
   
   /// Get current location for map (simplified)
-  Future<LatLng?> getCurrentLocationForMap() async {
+  Future<void> getCurrentLocationForMap() async {
     if (_currentLocation != null) {
-      return _currentLocation;
+      return;
     }
     
     try {
@@ -177,13 +191,12 @@ class MinimalLocationProvider extends ChangeNotifier {
       _currentLocation = location;
       _status = 'Location found';
       notifyListeners();
-      
-      return location;
+      return;
     } catch (e) {
       debugPrint('Error getting current location: $e');
       _status = 'Could not get location';
       notifyListeners();
-      return null;
+      return;
     }
   }
   

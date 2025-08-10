@@ -1,0 +1,24 @@
+### Manually Test the `send-fcm` Supabase Edge Function
+
+This file documents how to manually test the `send-fcm` Supabase Edge Function.
+
+**1. The `curl` Command**
+
+```bash
+curl -X POST 'https://groupsharing.supabase.co/functions/v1/send-fcm' \
+-H 'Authorization: Bearer <YOUR_SUPABASE_SERVICE_KEY>' \
+-H 'Content-Type: application/json' \
+-d '{
+  "token": "<A_DEVICE_TOKEN_TO_TEST_WITH>",
+  "data": {
+    "message": "This is a manual test of the send-fcm function."
+  }
+}'
+```
+
+**2. How to Get the Placeholder Values**
+
+*   **`<YOUR_SUPABASE_SERVICE_KEY>`**: This is your Supabase **`service_role` key**. You can find it in your Supabase project dashboard under **Project Settings > API**. Be very careful with this key, as it bypasses all security policies. Do not expose it publicly.
+
+*   **`<A_DEVICE_TOKEN_TO_TEST_WITH>`**: This is a Firebase Cloud Messaging (FCM) token from a device running your app. You'll need to get this from your Flutter application's logs when it starts up on a physical device or emulator/simulator.
+

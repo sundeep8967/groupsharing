@@ -11,10 +11,13 @@ import '../services/proximity_service.dart';
 import '../utils/performance_optimizer.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'location_provider_interface.dart';
 
 /// Enhanced Location Provider that uses the Persistent Location Service
 /// This provider ensures location tracking continues even when the app is killed
-class EnhancedLocationProvider with ChangeNotifier {
+/// Deprecated: Use `LocationProvider` instead.
+/// This class remains only for compilation compatibility and will be removed.
+class EnhancedLocationProvider with ChangeNotifier implements ILocationProvider {
   final LocationService _fallbackService = LocationService();
   final FirebaseDatabase _realtimeDb = FirebaseDatabase.instance;
   final PerformanceOptimizer _performanceOptimizer = PerformanceOptimizer();
@@ -53,6 +56,13 @@ class EnhancedLocationProvider with ChangeNotifier {
   LatLng? get currentLocation => _currentLocation;
   Map<String, LatLng> get userLocations => _userLocations;
   Map<String, bool> get userSharingStatus => _userSharingStatus;
+  
+  // ILocationProvider optional getters (return nulls/safe defaults here)
+  String? get currentAddress => null;
+  String? get city => null;
+  String? get country => null;
+  String? get postalCode => null;
+  List<String> get nearbyUsers => const [];
   
   /// Initialize the enhanced location provider
   Future<bool> initialize() async {

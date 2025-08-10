@@ -189,6 +189,13 @@ public class BackgroundLocationService extends Service implements LocationListen
             
             // Save tracking state for boot recovery
             BootReceiver.saveTrackingState(this, true, currentUserId);
+
+            // Schedule periodic watchdog alarm to ensure service stays alive
+            try {
+                AlarmReceiver.scheduleNext(this, 15 * 60 * 1000L); // 15 minutes
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to schedule heartbeat alarm: " + e.getMessage());
+            }
         }
         
         return START_STICKY; // Restart if killed by system
@@ -199,6 +206,12 @@ public class BackgroundLocationService extends Service implements LocationListen
         Log.d(TAG, "BackgroundLocationService destroyed");
         stopLocationUpdates();
         stopAutomaticLocationUpdates();
+        // Cancel watchdog alarm when service stops
+        try {
+            AlarmReceiver.cancel(this);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to cancel heartbeat alarm: " + e.getMessage());
+        }
         
         // Release wake lock
         if (wakeLock != null && wakeLock.isHeld()) {

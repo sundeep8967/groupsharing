@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:geocoding/geocoding.dart' as geocoding;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/persistent_location_service.dart';
+import 'location_provider_interface.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
 import '../services/proximity_service.dart';
@@ -21,7 +22,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Enhanced Location Provider that uses the Persistent Location Service
 /// This provider ensures location tracking continues even when the app is killed
-class LocationProvider with ChangeNotifier {
+class LocationProvider with ChangeNotifier implements ILocationProvider {
   final LocationService _fallbackService = LocationService();
   final FirebaseDatabase _realtimeDb = FirebaseDatabase.instance;
   final PerformanceOptimizer _performanceOptimizer = PerformanceOptimizer();

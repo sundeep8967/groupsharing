@@ -22,6 +22,7 @@ import 'services/persistent_foreground_notification_service.dart';
 import 'services/battery_optimization_service.dart';
 import 'services/location_service_starter.dart';
 import 'screens/performance_monitor_screen.dart';
+import 'services/persistent_location_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -219,20 +220,28 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       case AppLifecycleState.detached:
         // App is being terminated - ensure background tracking continues
         _handleAppTermination();
+        // Enter background throttling mode
+        PersistentLocationService.setBackgroundMode(true);
         break;
       case AppLifecycleState.paused:
         // App is paused but not terminated
         _handleAppPaused();
+        // Enter background throttling mode
+        PersistentLocationService.setBackgroundMode(true);
         break;
       case AppLifecycleState.resumed:
-        // App is resumed - restore state if needed
+        // App is resumed - restore state and check service health
         _handleAppResumed();
+        // Exit background throttling mode
+        PersistentLocationService.setBackgroundMode(false);
         break;
       case AppLifecycleState.inactive:
         // App is inactive
         break;
       case AppLifecycleState.hidden:
         // App is hidden
+        // Enter background throttling mode
+        PersistentLocationService.setBackgroundMode(true);
         break;
     }
   }

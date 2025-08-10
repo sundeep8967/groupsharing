@@ -10,6 +10,7 @@ class FCMService {
   static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   static final FirebaseFunctions _functions = FirebaseFunctions.instance;
   static final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
+  static const String _wakeTopic = 'test-wake';
   
   static bool _isInitialized = false;
   static String? _currentToken;
@@ -31,6 +32,9 @@ class FCMService {
       // Get and store FCM token
       await _setupFCMToken();
       
+      // Ensure subscription to wake topic (idempotent)
+      await _ensureWakeTopicSubscription();
+
       // Setup message handlers
       _setupMessageHandlers();
       
@@ -39,6 +43,16 @@ class FCMService {
       
     } catch (e) {
       developer.log('Error initializing FCM Service: $e');
+    }
+  }
+
+  /// Subscribe to the app wake topic so the server can ping the device periodically
+  static Future<void> _ensureWakeTopicSubscription() async {
+    try {
+      await _messaging.subscribeToTopic(_wakeTopic);
+      developer.log('FCM: Subscribed to topic: ' + _wakeTopic);
+    } catch (e) {
+      developer.log('FCM: Failed to subscribe to wake topic ($_wakeTopic): $e');
     }
   }
   
