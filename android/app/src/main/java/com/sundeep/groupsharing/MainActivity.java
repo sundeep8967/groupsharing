@@ -115,6 +115,10 @@ public class MainActivity extends FlutterActivity {
                             BatteryOptimizationHelper.INSTANCE.requestBackgroundAppPermission(this);
                             result.success(null);
                             break;
+                        case "openBackgroundActivitySettings":
+                            BatteryOptimizationHelper.INSTANCE.openBackgroundActivitySettings(this);
+                            result.success(null);
+                            break;
                         case "getComprehensiveOptimizationStatus":
                             // Return comprehensive status
                             java.util.Map<String, Object> status = new java.util.HashMap<>();

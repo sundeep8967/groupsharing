@@ -156,4 +156,81 @@ public class BatteryOptimizationHelper {
             }
         }
     }
+    
+    public void openBackgroundActivitySettings(Activity activity) {
+        Log.d(TAG, "Opening background activity settings");
+        
+        String manufacturer = Build.MANUFACTURER.toLowerCase();
+        Intent intent = null;
+        
+        try {
+            switch (manufacturer) {
+                case "xiaomi":
+                    // Try MIUI background activity settings
+                    intent = new Intent();
+                    intent.setClassName("com.miui.securitycenter", 
+                        "com.miui.permcenter.permissions.PermissionsEditorActivity");
+                    intent.putExtra("extra_pkgname", activity.getPackageName());
+                    break;
+                case "oneplus":
+                    // OnePlus background activity settings
+                    intent = new Intent();
+                    intent.setClassName("com.oneplus.security", 
+                        "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity");
+                    break;
+                case "oppo":
+                case "realme":
+                    // ColorOS background activity settings
+                    intent = new Intent();
+                    intent.setClassName("com.coloros.safecenter", 
+                        "com.coloros.safecenter.permission.PermissionManagerActivity");
+                    break;
+                case "vivo":
+                    // Vivo background activity settings
+                    intent = new Intent();
+                    intent.setClassName("com.vivo.permissionmanager", 
+                        "com.vivo.permissionmanager.activity.PurviewTabActivity");
+                    break;
+                case "huawei":
+                case "honor":
+                    // Huawei/Honor background activity settings
+                    intent = new Intent();
+                    intent.setClassName("com.huawei.systemmanager", 
+                        "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity");
+                    break;
+                case "samsung":
+                    // Samsung background activity settings
+                    intent = new Intent();
+                    intent.setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                    intent.setData(Uri.parse("package:" + activity.getPackageName()));
+                    break;
+                default:
+                    // Generic approach - try to open app-specific battery settings
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        intent = new Intent();
+                        intent.setAction(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                    } else {
+                        intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                        intent.setData(Uri.parse("package:" + activity.getPackageName()));
+                    }
+                    break;
+            }
+            
+            if (intent != null) {
+                activity.startActivity(intent);
+                Log.d(TAG, "Opened background activity settings for " + manufacturer);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening background activity settings: " + e.getMessage());
+            // Fallback to app settings
+            try {
+                Intent fallbackIntent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                fallbackIntent.setData(Uri.parse("package:" + activity.getPackageName()));
+                activity.startActivity(fallbackIntent);
+                Log.d(TAG, "Opened fallback app settings");
+            } catch (Exception fallbackException) {
+                Log.e(TAG, "Error opening fallback settings: " + fallbackException.getMessage());
+            }
+        }
+    }
 }

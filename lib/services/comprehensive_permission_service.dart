@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'dart:io';
+import '../services/background_activity_service.dart';
 
 /// Comprehensive permission service for handling all app permissions
 class ComprehensivePermissionService {
@@ -28,6 +29,12 @@ class ComprehensivePermissionService {
         batteryIgnoreStatus = await Permission.ignoreBatteryOptimizations.status;
       }
 
+      // Background activity status (Android only)
+      bool backgroundActivityEnabled = true;
+      if (Platform.isAndroid) {
+        backgroundActivityEnabled = await BackgroundActivityService.isBackgroundActivityEnabled();
+      }
+
       // Check other permissions
       final phonePermission = await Permission.phone.status;
       final storagePermission = await Permission.storage.status;
@@ -50,6 +57,7 @@ class ComprehensivePermissionService {
           'location_basic': locationPermission.isGranted,
           'location_background': locationAlwaysPermission.isGranted,
           'battery_optimization': Platform.isAndroid ? (batteryIgnoreStatus?.isGranted ?? false) : true,
+          'background_activity': backgroundActivityEnabled,
           'auto_start': false, // cannot be detected reliably; user must acknowledge via protection screen
           'notifications': notificationPermission.isGranted,
           'ios_background_refresh': Platform.isIOS ? await _iosBackgroundRefreshEnabled() : true,
@@ -101,7 +109,14 @@ class ComprehensivePermissionService {
         debugPrint('Battery optimization result: $batteryResult');
       }
       
-      // Step 5: Device-specific permissions
+      // Step 5: Background activity (Android specific)
+      if (Platform.isAndroid) {
+        debugPrint('Requesting background activity permission...');
+        await BackgroundActivityService.requestBackgroundActivity();
+        debugPrint('Background activity request completed');
+      }
+      
+      // Step 6: Device-specific permissions
       await _requestDeviceSpecificPermissions();
       
       // Check final status

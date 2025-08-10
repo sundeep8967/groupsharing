@@ -22,6 +22,7 @@ import 'services/persistent_foreground_notification_service.dart';
 import 'services/battery_optimization_service.dart';
 import 'services/location_service_starter.dart';
 import 'screens/performance_monitor_screen.dart';
+import 'screens/settings/background_activity_setup_screen.dart';
 import 'services/persistent_location_service.dart';
 
 void main() async {
@@ -341,6 +342,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           '/onboarding': (context) => const OnboardingScreen(),
           '/performance-monitor': (context) => const PerformanceMonitorScreen(),
           '/location-permissions': (context) => const LocationPermissionsScreen(),
+          '/background-activity-setup': (context) => const BackgroundActivitySetupScreen(),
         },
         onGenerateRoute: (settings) {
           // Handle dynamic routes with arguments

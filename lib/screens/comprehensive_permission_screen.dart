@@ -53,6 +53,12 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
       'color': Colors.orange,
     },
     {
+      'title': '🔄 Background Activity',
+      'description': 'Enable background activity for continuous operation',
+      'icon': Icons.apps,
+      'color': Colors.deepOrange,
+    },
+    {
       'title': '🚀 Auto-Start Permission',
       'description': 'Allow app to restart after device reboot',
       'icon': Icons.restart_alt,
@@ -352,9 +358,10 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
       case 0: return _permissionStatus['location_basic'] ?? false;
       case 1: return _permissionStatus['location_background'] ?? false;
       case 2: return _permissionStatus['battery_optimization'] ?? false;
-      case 3: return _permissionStatus['auto_start'] ?? false;
-      case 4: return _permissionStatus['notifications'] ?? false;
-      case 5: return _permissionStatus['ios_background_refresh'] ?? false;
+      case 3: return _permissionStatus['background_activity'] ?? false;
+      case 4: return _permissionStatus['auto_start'] ?? false;
+      case 5: return _permissionStatus['notifications'] ?? false;
+      case 6: return _permissionStatus['ios_background_refresh'] ?? false;
       default: return false;
     }
   }
