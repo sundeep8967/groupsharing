@@ -48,6 +48,11 @@ app.*.map.json
 .env
 .env.local
 .env.production
+
+# Firebase credentials
+group-sharing-9d119-firebase-adminsdk-fbsvc-305e4ca3f5.json
+*.json.private
+*-firebase-adminsdk-*.json
 .env.staging
 lib/config/api_keys.dart
 
