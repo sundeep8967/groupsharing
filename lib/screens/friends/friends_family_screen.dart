@@ -426,8 +426,8 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
     return GestureDetector(
       onTap: () {
         if (isOn && !_isToggling) {
-          // If already ON, trigger manual update
-          _handleManualUpdate(locationProvider);
+          // If already ON, turn it OFF with a simple tap
+          _handleToggle(false, locationProvider, user);
         } else if (!isOn && !_isToggling) {
           // If OFF, turn ON
           _handleToggle(true, locationProvider, user);
@@ -435,8 +435,8 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
       },
       onLongPress: () {
         if (isOn && !_isToggling) {
-          // Long press when ON - turn OFF
-          _handleToggle(false, locationProvider, user);
+          // Long press when ON - trigger manual update instead
+          _handleManualUpdate(locationProvider);
         }
       },
       child: Container(
@@ -501,7 +501,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
                   scale: 0.6,
                   child: Switch(
                     value: isOn,
-                    onChanged: null, // Disable direct interaction - use container tap instead
+                    onChanged: null, // Disable direct interaction - tap container to toggle on/off
                     activeColor: Colors.green,
                     activeTrackColor: Colors.green.withValues(alpha: 0.3),
                     inactiveThumbColor: Colors.grey[400],
@@ -510,7 +510,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
                   ),
                 ),
               ),
-              // Add a small "Update" indicator when ON
+              // Add a small indicator when ON (long press to update)
               if (isOn && !_isToggling)
                 Padding(
                   padding: const EdgeInsets.only(left: 2),
