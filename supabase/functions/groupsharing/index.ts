@@ -72,7 +72,7 @@ async function getAccessToken() {
   return json.access_token as string;
 }
 
-Deno.serve(async () => {
+async function processStaleHeartbeats() {
   const accessToken = await getAccessToken();
 
   const rtdbUrl = Deno.env.get("RTDB_URL")!;
@@ -84,7 +84,7 @@ Deno.serve(async () => {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   const users = await usersRes.json() as Record<string, any> | null;
-  if (!users) return new Response("No users", { status: 200 });
+  if (!users) return { sent: 0, message: "No users" };
 
   const now = Date.now();
   const cutoffMs = 3 * 60 * 1000; // 3 minutes
@@ -99,7 +99,7 @@ Deno.serve(async () => {
       const msg = {
         message: {
           token,
-          data: { action: "restart_service" },
+          data: { action: "revive_service" },
           android: { priority: "HIGH" },
           apns: { headers: { "apns-push-type": "background", "apns-priority": "5" } },
         },
@@ -119,7 +119,32 @@ Deno.serve(async () => {
   });
 
   await Promise.all(sends);
-  return new Response(`sent=${sent}`, { status: 200 });
+  return { sent, message: `sent=${sent}` };
+}
+
+Deno.serve(async () => {
+  const result = await processStaleHeartbeats();
+  return new Response(result.message, { status: 200 });
 });
+
+// --- Cron scheduling for automatic execution every 30 minutes ---
+try {
+  const cronEnabled = (Deno.env.get("GROUPSHARING_CRON_ENABLED") || "true").toLowerCase() === "true";
+  if (cronEnabled) {
+    const spec = Deno.env.get("GROUPSHARING_CRON_SPEC") || "*/30 * * * *"; // default every 30 min
+    Deno.cron("groupsharing-heartbeat-monitor", spec, async () => {
+      try {
+        console.log("Running scheduled heartbeat monitoring...");
+        const result = await processStaleHeartbeats();
+        console.log(`Heartbeat monitoring completed: ${result.message}`);
+      } catch (e) {
+        console.error("Cron heartbeat monitoring error:", (e as Error).message);
+      }
+    });
+    console.log(`Groupsharing cron scheduled: ${spec}`);
+  }
+} catch {
+  // Deno.cron may not be available in older runtimes; ignore
+}
 
 

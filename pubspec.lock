@@ -466,13 +466,13 @@ packages:
     source: hosted
     version: "7.3.0"
   firebase_auth_web:
-    dependency: "direct overridden"
+    dependency: transitive
     description:
       name: firebase_auth_web
-      sha256: c09515414c07c11bb133aec4baae9a74c6ff1f62bf05ace54564db82b8c87852
+      sha256: "64e067e763c6378b7e774e872f0f59f6812885e43020e25cde08f42e9459837b"
       url: "https://pub.dev"
     source: hosted
-    version: "5.8.12"
+    version: "5.12.0"
   firebase_core:
     dependency: "direct main"
     description:
@@ -490,13 +490,13 @@ packages:
     source: hosted
     version: "5.4.0"
   firebase_core_web:
-    dependency: "direct overridden"
+    dependency: transitive
     description:
       name: firebase_core_web
-      sha256: d585bdf3c656c3f7821ba1bd44da5f13365d22fcecaf5eb75c4295246aaa83c0
+      sha256: "362e52457ed2b7b180964769c1e04d1e0ea0259fdf7025fdfedd019d4ae2bd88"
       url: "https://pub.dev"
     source: hosted
-    version: "2.10.0"
+    version: "2.17.5"
   firebase_crashlytics:
     dependency: "direct main"
     description:
@@ -578,13 +578,13 @@ packages:
     source: hosted
     version: "5.1.22"
   firebase_storage_web:
-    dependency: "direct overridden"
+    dependency: transitive
     description:
       name: firebase_storage_web
-      sha256: "766be7cc58b02f33a6f21fc00d1224daa1a7aef3627a9c546b5dfa50d649d7e2"
+      sha256: "3a44aacd38a372efb159f6fe36bb4a7d79823949383816457fd43d3d47602a53"
       url: "https://pub.dev"
     source: hosted
-    version: "3.6.21"
+    version: "3.9.7"
   fixnum:
     dependency: transitive
     description:
@@ -1404,10 +1404,10 @@ packages:
     dependency: "direct main"
     description:
       name: share_plus
-      sha256: fce43200aa03ea87b91ce4c3ac79f0cecd52e2a7a56c7a4185023c271fbfa6da
+      sha256: "59dfd53f497340a0c3a81909b220cfdb9b8973a91055c4e5ab9b9b9ad7c513c0"
       url: "https://pub.dev"
     source: hosted
-    version: "10.1.4"
+    version: "10.0.0"
   share_plus_platform_interface:
     dependency: transitive
     description:
@@ -1793,10 +1793,10 @@ packages:
     dependency: transitive
     description:
       name: web
-      sha256: "868d88a33d8a87b18ffc05f9f030ba328ffefba92d6c127917a2ba740f9cfe4a"
+      sha256: "97da13628db363c635202ad97068d47c5b8aa555808e7a9411963c533b449b27"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.1"
+    version: "0.5.1"
   web_socket:
     dependency: transitive
     description:

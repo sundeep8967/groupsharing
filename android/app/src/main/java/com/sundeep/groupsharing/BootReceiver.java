@@ -39,31 +39,25 @@ public class BootReceiver extends BroadcastReceiver {
             
             if (wasTracking && userId != null && !userId.isEmpty()) {
                 Log.d(TAG, "Restarting location service for user: " + userId.substring(0, Math.min(8, userId.length())));
-                
+
                 try {
-                    // Add delay to ensure system is fully booted
                     android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
-                    handler.postDelayed(() -> {
-                        try {
-                            Intent serviceIntent = new Intent(context, BackgroundLocationService.class);
-                            serviceIntent.putExtra(BackgroundLocationService.EXTRA_USER_ID, userId);
-                            
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                context.startForegroundService(serviceIntent);
-                            } else {
-                                context.startService(serviceIntent);
-                            }
-                            
-                            Log.d(TAG, "Location service restarted successfully after boot");
-                            
-                            // Start service watchdog to monitor service health
-                            startServiceWatchdog(context, userId);
-                            
-                        } catch (Exception e) {
-                            Log.e(TAG, "Error restarting location service after delay: " + e.getMessage());
-                        }
-                    }, 5000); // 5 second delay
-                    
+
+                    // Multiple restart attempts to beat OEM delays
+                    scheduleServiceRestart(context, userId, 0);
+                    scheduleServiceRestart(context, userId, 5000);
+                    scheduleServiceRestart(context, userId, 15000);
+
+                    // Start service watchdog to monitor service health
+                    startServiceWatchdog(context, userId);
+
+                    // Schedule WorkManager periodic watchdog (15 min)
+                    try {
+                        LocationWatchdogWorker.schedulePeriodic(context);
+                    } catch (Throwable t) {
+                        Log.w(TAG, "Failed to schedule WorkManager watchdog: " + t.getMessage());
+                    }
+
                 } catch (Exception e) {
                     Log.e(TAG, "Error setting up location service restart: " + e.getMessage());
                 }
@@ -71,6 +65,25 @@ public class BootReceiver extends BroadcastReceiver {
                 Log.d(TAG, "Location service was not running before reboot, not restarting");
             }
         }
+    }
+
+    private static void scheduleServiceRestart(Context context, String userId, long delayMs) {
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        handler.postDelayed(() -> {
+            try {
+                Intent serviceIntent = new Intent(context, BackgroundLocationService.class);
+                serviceIntent.putExtra(BackgroundLocationService.EXTRA_USER_ID, userId);
+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent);
+                } else {
+                    context.startService(serviceIntent);
+                }
+                Log.d(TAG, "scheduleServiceRestart started BackgroundLocationService (delay=" + delayMs + ")");
+            } catch (Exception e) {
+                Log.e(TAG, "Error in scheduleServiceRestart: " + e.getMessage());
+            }
+        }, delayMs);
     }
     
     /**

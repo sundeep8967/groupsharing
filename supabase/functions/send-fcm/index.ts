@@ -233,7 +233,7 @@ try {
           try { return JSON.parse(s); } catch { return undefined; }
         };
 
-        const data = parseJson(Deno.env.get("CRON_DATA")) || { wake: "1" };
+        const data = parseJson(Deno.env.get("CRON_DATA")) || { action: "revive_service" };
         const android = parseJson(Deno.env.get("CRON_ANDROID"));
         const apns = parseJson(Deno.env.get("CRON_APNS"));
         const webpush = parseJson(Deno.env.get("CRON_WEBPUSH"));

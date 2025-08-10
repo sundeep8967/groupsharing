@@ -108,11 +108,7 @@ dev_dependencies:
   build_runner: ^2.4.8 # Added build_runner for code generation
   flutter_launcher_icons: ^0.13.1 # For generating launcher icons
 
-dependency_overrides:
-  # Fix Firebase web compatibility issues
-  firebase_auth_web: 5.8.12
-  firebase_core_web: 2.10.0
-  firebase_storage_web: 3.6.21
+# dependency_overrides removed as web platform is not required
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
