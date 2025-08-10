@@ -4,10 +4,12 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'dart:io';
+import 'package:flutter/services.dart';
 import '../services/background_activity_service.dart';
 
 /// Comprehensive permission service for handling all app permissions
 class ComprehensivePermissionService {
+  static const MethodChannel _bulletproofPermissionsChannel = MethodChannel('bulletproof_permissions');
   static bool _allPermissionsGranted = false;
   
   /// Check if all permissions are granted
@@ -39,9 +41,21 @@ class ComprehensivePermissionService {
       final phonePermission = await Permission.phone.status;
       final storagePermission = await Permission.storage.status;
       
+      bool exactAlarmGranted = true; // default true for non-Android
+      if (Platform.isAndroid) {
+        try {
+          final result = await _bulletproofPermissionsChannel.invokeMethod<bool>('checkExactAlarmPermission');
+          exactAlarmGranted = result ?? false;
+        } catch (e) {
+          debugPrint('Error checking exact alarm permission: $e');
+          exactAlarmGranted = false;
+        }
+      }
+      
       final allGranted = locationPermission.isGranted &&
           locationAlwaysPermission.isGranted &&
-          notificationPermission.isGranted;
+          notificationPermission.isGranted &&
+          (Platform.isAndroid ? exactAlarmGranted : true);
       
       _allPermissionsGranted = allGranted;
       
@@ -56,6 +70,7 @@ class ComprehensivePermissionService {
         'permissions': {
           'location_basic': locationPermission.isGranted,
           'location_background': locationAlwaysPermission.isGranted,
+          'exact_alarm': Platform.isAndroid ? exactAlarmGranted : true,
           'battery_optimization': Platform.isAndroid ? (batteryIgnoreStatus?.isGranted ?? false) : true,
           'background_activity': backgroundActivityEnabled,
           'auto_start': false, // cannot be detected reliably; user must acknowledge via protection screen
@@ -102,21 +117,47 @@ class ComprehensivePermissionService {
       final notificationResult = await Permission.notification.request();
       debugPrint('Notification permission result: $notificationResult');
       
-      // Step 4: Battery optimization (Android specific)
+      // Step 4: Exact alarm permission (Android 12+ special app-op)
+      bool exactAlarmGranted = true; // default true for non-Android
+      if (Platform.isAndroid) {
+        try {
+          final result = await _bulletproofPermissionsChannel.invokeMethod<bool>('checkExactAlarmPermission');
+          exactAlarmGranted = result ?? false;
+        } catch (e) {
+          debugPrint('Error checking exact alarm permission: $e');
+          exactAlarmGranted = false;
+        }
+      }
+      
+      // Step 5: Battery optimization (Android specific)
       if (Platform.isAndroid) {
         debugPrint('Requesting battery optimization exemption...');
         final batteryResult = await Permission.ignoreBatteryOptimizations.request();
         debugPrint('Battery optimization result: $batteryResult');
       }
       
-      // Step 5: Background activity (Android specific)
+      // Step 6: Background activity (Android specific)
       if (Platform.isAndroid) {
         debugPrint('Requesting background activity permission...');
         await BackgroundActivityService.requestBackgroundActivity();
         debugPrint('Background activity request completed');
       }
-      
-      // Step 6: Device-specific permissions
+
+      // Step 7: Exact Alarms (Android specific)
+      if (Platform.isAndroid) {
+        try {
+          final hasExact = await _bulletproofPermissionsChannel.invokeMethod<bool>('checkExactAlarmPermission') ?? false;
+          debugPrint('Exact alarm permission current: $hasExact');
+          if (!hasExact) {
+            debugPrint('Requesting exact alarm permission via Settings intent...');
+            await _bulletproofPermissionsChannel.invokeMethod('requestExactAlarmPermission');
+          }
+        } catch (e) {
+          debugPrint('Error requesting exact alarm permission: $e');
+        }
+      }
+
+      // Step 8: Device-specific permissions
       await _requestDeviceSpecificPermissions();
       
       // Check final status

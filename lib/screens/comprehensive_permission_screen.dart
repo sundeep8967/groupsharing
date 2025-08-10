@@ -47,6 +47,12 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
       'color': Colors.green,
     },
     {
+      'title': '⏰ Exact Alarms',
+      'description': 'Allow exact alarms so the app can reliably wake in the background',
+      'icon': Icons.alarm_on,
+      'color': Colors.indigo,
+    },
+    {
       'title': '🔋 Battery Optimization',
       'description': 'Disable battery optimization for reliable location sharing',
       'icon': Icons.battery_full,
@@ -357,11 +363,12 @@ class _ComprehensivePermissionScreenState extends State<ComprehensivePermissionS
     switch (index) {
       case 0: return _permissionStatus['location_basic'] ?? false;
       case 1: return _permissionStatus['location_background'] ?? false;
-      case 2: return _permissionStatus['battery_optimization'] ?? false;
-      case 3: return _permissionStatus['background_activity'] ?? false;
-      case 4: return _permissionStatus['auto_start'] ?? false;
-      case 5: return _permissionStatus['notifications'] ?? false;
-      case 6: return _permissionStatus['ios_background_refresh'] ?? false;
+      case 2: return _permissionStatus['exact_alarm'] ?? false;
+      case 3: return _permissionStatus['battery_optimization'] ?? false;
+      case 4: return _permissionStatus['background_activity'] ?? false;
+      case 5: return _permissionStatus['auto_start'] ?? false;
+      case 6: return _permissionStatus['notifications'] ?? false;
+      case 7: return _permissionStatus['ios_background_refresh'] ?? false;
       default: return false;
     }
   }
