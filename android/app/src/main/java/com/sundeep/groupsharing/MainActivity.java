@@ -24,12 +24,29 @@ public class MainActivity extends FlutterActivity {
     private static final String CHANNEL_BULLETPROOF_BATTERY = "bulletproof_battery";
     private static final String CHANNEL_PERSISTENT_NOTIFICATION = "persistent_foreground_notification";
     private static final String CHANNEL_PERSISTENT_FOREGROUND_SERVICE = "persistent_foreground_service";
+    private static final String CHANNEL_ACTIVITY_RECOGNITION = "activity_recognition_service";
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1001;
     private static final int BACKGROUND_LOCATION_PERMISSION_REQUEST_CODE = 1002;
 
     @Override
     public void configureFlutterEngine(FlutterEngine flutterEngine) {
         super.configureFlutterEngine(flutterEngine);
+        
+        // Activity Recognition Service Channel
+        new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL_ACTIVITY_RECOGNITION)
+                .setMethodCallHandler((call, result) -> {
+                    switch (call.method) {
+                        case "startActivityRecognition":
+                            handleStartActivityRecognition(result);
+                            break;
+                        case "stopActivityRecognition":
+                            handleStopActivityRecognition(result);
+                            break;
+                        default:
+                            result.notImplemented();
+                            break;
+                    }
+                });
         
         // Persistent Location Service Channel
         new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL_PERSISTENT_LOCATION)
@@ -547,6 +564,49 @@ public class MainActivity extends FlutterActivity {
             return PersistentLocationService.isServiceRunning(this);
         } catch (Exception e) {
             return false;
+        }
+    }
+    
+    private void handleStartActivityRecognition(MethodChannel.Result result) {
+        try {
+            // Check for activity recognition permission on Android 10+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION) 
+                        != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(this, 
+                            new String[]{Manifest.permission.ACTIVITY_RECOGNITION}, 
+                            1003);
+                    result.error("PERMISSION_DENIED", "Activity recognition permission not granted", null);
+                    return;
+                }
+            }
+            
+            // Start the Activity Detection Service
+            Intent serviceIntent = new Intent(this, ActivityDetectionService.class);
+            startService(serviceIntent);
+            
+            // Set the method channel in the receiver for callbacks
+            ActivityRecognitionReceiver.methodChannel = 
+                    new MethodChannel(getFlutterEngine().getDartExecutor().getBinaryMessenger(), CHANNEL_ACTIVITY_RECOGNITION);
+            
+            result.success(true);
+        } catch (Exception e) {
+            result.error("START_FAILED", "Failed to start activity recognition: " + e.getMessage(), null);
+        }
+    }
+    
+    private void handleStopActivityRecognition(MethodChannel.Result result) {
+        try {
+            // Stop the Activity Detection Service
+            Intent serviceIntent = new Intent(this, ActivityDetectionService.class);
+            stopService(serviceIntent);
+            
+            // Clear the method channel reference
+            ActivityRecognitionReceiver.methodChannel = null;
+            
+            result.success(true);
+        } catch (Exception e) {
+            result.error("STOP_FAILED", "Failed to stop activity recognition: " + e.getMessage(), null);
         }
     }
 

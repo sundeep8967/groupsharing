@@ -422,6 +422,13 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
 
   Widget _buildLocationToggle(LocationProvider locationProvider, firebase_auth.User user) {
     final isOn = locationProvider.isTracking;
+    final status = locationProvider.status;
+    
+    // Check if status contains activity information
+    final bool hasActivityInfo = status.contains('(') && status.contains(')');
+    final String? activity = hasActivityInfo 
+        ? status.substring(status.indexOf('(') + 1, status.indexOf(')')) 
+        : null;
     
     return GestureDetector(
       onTap: () {
@@ -510,8 +517,18 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
                   ),
                 ),
               ),
-              // Add a small indicator when ON (long press to update)
-              if (isOn && !_isToggling)
+              // Show activity icon when available
+              if (isOn && activity != null && !_isToggling)
+                Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: Icon(
+                    _getActivityIcon(activity),
+                    size: 10,
+                    color: Colors.green.withValues(alpha: 0.7),
+                  ),
+                ),
+              // Add a small indicator when ON but no activity detected (long press to update)
+              if (isOn && activity == null && !_isToggling)
                 Padding(
                   padding: const EdgeInsets.only(left: 2),
                   child: Icon(
@@ -528,6 +545,24 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
   }
 
   bool _isToggling = false; // Add state to prevent multiple toggles
+  
+  /// Returns an appropriate icon for the detected activity
+  IconData _getActivityIcon(String activity) {
+    switch (activity.toLowerCase()) {
+      case 'walking':
+        return Icons.directions_walk;
+      case 'running':
+        return Icons.directions_run;
+      case 'on bicycle':
+        return Icons.directions_bike;
+      case 'in vehicle':
+        return Icons.directions_car;
+      case 'still':
+        return Icons.accessibility_new;
+      default:
+        return Icons.device_unknown;
+    }
+  }
   
   void _handleToggle(bool value, LocationProvider locationProvider, firebase_auth.User user) async {
     developer.log('Toggle pressed: $value, current tracking: ${locationProvider.isTracking}');

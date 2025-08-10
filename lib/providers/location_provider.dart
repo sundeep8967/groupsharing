@@ -16,6 +16,7 @@ import '../services/native_background_location_service.dart';
 import '../services/universal_location_integration_service.dart';
 import '../utils/performance_optimizer.dart';
 import '../services/battery_optimization_service.dart';
+import '../services/activity_recognition_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -93,6 +94,13 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
       
       // Initialize notification service
       await NotificationService.initialize();
+      
+      // Initialize activity recognition service
+      if (Platform.isAndroid) {
+        await ActivityRecognitionService.initialize();
+        ActivityRecognitionService.onActivityUpdate = _handleActivityUpdate;
+        ActivityRecognitionService.onError = _handleActivityError;
+      }
       
       // Initialize persistent location service
       final persistentInitialized = await PersistentLocationService.initialize();
@@ -208,6 +216,11 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
       UniversalLocationIntegrationService.onError = _handleLocationError;
       UniversalLocationIntegrationService.onServiceStopped = _handleServiceStopped;
       
+      // Start activity recognition service on Android
+      if (Platform.isAndroid) {
+        await ActivityRecognitionService.startTracking(userId);
+      }
+      
       final universalStarted = await UniversalLocationIntegrationService.startLocationTrackingForUser(userId);
       
       if (!universalStarted) {
@@ -266,6 +279,11 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
       // CRITICAL: Stop Universal Location Integration Service
       // This properly stops all background services for the user
       await UniversalLocationIntegrationService.stopLocationTracking();
+      
+      // Stop activity recognition service on Android
+      if (Platform.isAndroid) {
+        await ActivityRecognitionService.stopTracking();
+      }
       
       // Fallback: Stop legacy services if universal service fails
       await _stopNativeBackgroundService();
@@ -578,6 +596,43 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
           );
         }
       });
+    }
+  }
+  
+  /// Handle activity recognition update
+  void _handleActivityUpdate(String activity, int confidence) {
+    developer.log('Activity detected: $activity (confidence: $confidence%)');
+    
+    // Update status with activity information
+    if (confidence >= 70) {
+      _status = 'Location sharing active ($activity)';
+      if (_mounted) notifyListeners();
+      
+      // Adjust location update frequency based on activity
+      if (activity == 'In Vehicle') {
+        // Increase frequency for driving
+        _adjustLocationFrequency(true);
+      } else if (activity == 'Still') {
+        // Decrease frequency when stationary
+        _adjustLocationFrequency(false);
+      }
+    }
+  }
+  
+  /// Handle activity recognition error
+  void _handleActivityError(String error) {
+    developer.log('Activity recognition error: $error');
+    // Don't update UI for activity errors, just log them
+  }
+  
+  /// Adjust location update frequency based on activity
+  Future<void> _adjustLocationFrequency(bool highFrequency) async {
+    try {
+      // This will be handled by the native implementation
+      // The ActivityRecognitionReceiver already sets the appropriate frequency
+      // when starting the UltraGeofencingService
+    } catch (e) {
+      developer.log('Error adjusting location frequency: $e');
     }
   }
   
