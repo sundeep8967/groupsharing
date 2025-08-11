@@ -1,4 +1,4 @@
-package com.example.groupsharing
+package com.sundeep.groupsharing
 
 import android.Manifest
 import android.app.*

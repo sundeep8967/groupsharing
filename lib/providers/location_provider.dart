@@ -17,6 +17,9 @@ import '../services/universal_location_integration_service.dart';
 import '../utils/performance_optimizer.dart';
 import '../services/battery_optimization_service.dart';
 import '../services/activity_recognition_service.dart';
+import '../services/sleep_detection_service.dart';
+import '../services/network_movement_service.dart';
+import '../services/sensor_fusion_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -100,6 +103,26 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
         await ActivityRecognitionService.initialize();
         ActivityRecognitionService.onActivityUpdate = _handleActivityUpdate;
         ActivityRecognitionService.onError = _handleActivityError;
+      }
+      
+      // Initialize sleep detection service
+      await SleepDetectionService.initialize();
+      SleepDetectionService.onTrackingModeChanged = _handleTrackingModeChanged;
+      SleepDetectionService.onStatusUpdate = _handleSleepStatusUpdate;
+      SleepDetectionService.onError = _handleSleepError;
+      
+      // Initialize network movement service
+      if (Platform.isAndroid) {
+        await NetworkMovementService.initialize();
+        NetworkMovementService.onNetworkMovementDetected = _handleNetworkMovementDetected;
+        NetworkMovementService.onError = _handleNetworkError;
+      }
+      
+      // Initialize sensor fusion service
+      if (Platform.isAndroid) {
+        await SensorFusionService.initialize();
+        SensorFusionService.onSensorMovementDetected = _handleSensorMovementDetected;
+        SensorFusionService.onError = _handleSensorError;
       }
       
       // Initialize persistent location service
@@ -221,6 +244,19 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
         await ActivityRecognitionService.startTracking(userId);
       }
       
+      // Start sleep detection monitoring
+      await SleepDetectionService.startMonitoring();
+      
+      // Start network movement monitoring
+      if (Platform.isAndroid) {
+        await NetworkMovementService.startMonitoring();
+      }
+      
+      // Start sensor fusion monitoring
+      if (Platform.isAndroid) {
+        await SensorFusionService.startMonitoring();
+      }
+      
       final universalStarted = await UniversalLocationIntegrationService.startLocationTrackingForUser(userId);
       
       if (!universalStarted) {
@@ -283,6 +319,19 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
       // Stop activity recognition service on Android
       if (Platform.isAndroid) {
         await ActivityRecognitionService.stopTracking();
+      }
+      
+      // Stop sleep detection monitoring
+      await SleepDetectionService.stopMonitoring();
+      
+      // Stop network movement monitoring
+      if (Platform.isAndroid) {
+        await NetworkMovementService.stopMonitoring();
+      }
+      
+      // Stop sensor fusion monitoring
+      if (Platform.isAndroid) {
+        await SensorFusionService.stopMonitoring();
       }
       
       // Fallback: Stop legacy services if universal service fails
@@ -509,8 +558,17 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
   void _handleLocationUpdate(LatLng location) {
     if (!_isTracking || _currentUserId == null) return;
     
+    // Check if we should actually update location based on movement
+    if (!SleepDetectionService.shouldUpdateLocation(location)) {
+      developer.log('Skipping location update - no significant movement');
+      return;
+    }
+    
     _currentLocation = location;
     _userLocations[_currentUserId!] = location;
+    
+    // Update sleep detection service with new location
+    SleepDetectionService.updateCurrentLocation(location);
     
     // CRITICAL FIX: Sync location to Firebase Realtime Database
     _syncLocationToFirebase(location);
@@ -544,14 +602,17 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
     
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final trackingMode = SleepDetectionService.currentMode;
       
-      // Update Realtime Database with location
+      // Update Realtime Database with location and tracking mode
       await _realtimeDb.ref('locations/${_currentUserId!}').set({
         'lat': location.latitude,
         'lng': location.longitude,
         'timestamp': timestamp,
         'isSharing': true,
         'accuracy': 10.0, // Default accuracy
+        'trackingMode': trackingMode.toString(),
+        'sleepState': _getSleepStateFromMode(trackingMode),
       });
       
       // Also update Firestore for persistence
@@ -562,11 +623,28 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
           'timestamp': FieldValue.serverTimestamp(),
         },
         'lastLocationUpdate': FieldValue.serverTimestamp(),
+        'trackingMode': trackingMode.toString(),
       });
       
-      developer.log('Location synced to Firebase: ${location.latitude}, ${location.longitude}');
+      developer.log('Location synced to Firebase: ${location.latitude}, ${location.longitude} (Mode: $trackingMode)');
     } catch (e) {
       developer.log('Error syncing location to Firebase: $e');
+    }
+  }
+  
+  /// Get sleep state string from tracking mode
+  String _getSleepStateFromMode(TrackingMode mode) {
+    switch (mode) {
+      case TrackingMode.SLEEP_MODE:
+        return 'sleeping';
+      case TrackingMode.IDLE_MODE:
+        return 'idle';
+      case TrackingMode.ACTIVE_MODE:
+        return 'active';
+      case TrackingMode.DRIVING_MODE:
+        return 'driving';
+      default:
+        return 'awake';
     }
   }
 
@@ -603,12 +681,15 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
   void _handleActivityUpdate(String activity, int confidence) {
     developer.log('Activity detected: $activity (confidence: $confidence%)');
     
-    // Update status with activity information
+    // Update status with activity information and sleep mode status
     if (confidence >= 70) {
-      _status = 'Location sharing active ($activity)';
+      final sleepStatus = SleepDetectionService.getStatusText();
+      _status = sleepStatus.contains('Sleeping') || sleepStatus.contains('Idle') 
+          ? sleepStatus 
+          : 'Location sharing active ($activity)';
       if (_mounted) notifyListeners();
       
-      // Adjust location update frequency based on activity
+      // Adjust location update frequency based on activity and sleep mode
       if (activity == 'In Vehicle') {
         // Increase frequency for driving
         _adjustLocationFrequency(true);
@@ -625,12 +706,18 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
     // Don't update UI for activity errors, just log them
   }
   
-  /// Adjust location update frequency based on activity
+  /// Adjust location update frequency based on activity and sleep mode
   Future<void> _adjustLocationFrequency(bool highFrequency) async {
     try {
+      // Get current sleep detection mode
+      final currentMode = SleepDetectionService.currentMode;
+      final updateInterval = SleepDetectionService.getCurrentUpdateInterval();
+      
+      developer.log('Adjusting location frequency - Mode: $currentMode, Interval: ${updateInterval.inMinutes} minutes');
+      
       // This will be handled by the native implementation
       // The ActivityRecognitionReceiver already sets the appropriate frequency
-      // when starting the UltraGeofencingService
+      // when starting the UltraGeofencingService, but now it also considers sleep mode
     } catch (e) {
       developer.log('Error adjusting location frequency: $e');
     }
@@ -1036,6 +1123,149 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
     } catch (e) {
       developer.log('Error updating address from coordinates: $e');
     }
+  }
+
+  /// Handle tracking mode changes from sleep detection
+  void _handleTrackingModeChanged(TrackingMode mode) {
+    developer.log('Tracking mode changed to: $mode');
+    
+    // Update status based on new mode
+    _status = SleepDetectionService.getStatusText();
+    
+    // Adjust location frequency based on new mode
+    switch (mode) {
+      case TrackingMode.SLEEP_MODE:
+      case TrackingMode.IDLE_MODE:
+        _adjustLocationFrequency(false);
+        break;
+      case TrackingMode.ACTIVE_MODE:
+      case TrackingMode.DRIVING_MODE:
+        _adjustLocationFrequency(true);
+        break;
+      case TrackingMode.NORMAL_MODE:
+        // Keep current frequency
+        break;
+    }
+    
+    if (_mounted) notifyListeners();
+  }
+  
+  /// Handle sleep status updates
+  void _handleSleepStatusUpdate(String status) {
+    developer.log('Sleep status update: $status');
+    _status = status;
+    if (_mounted) notifyListeners();
+  }
+  
+  /// Handle sleep detection errors
+  void _handleSleepError(String error) {
+    developer.log('Sleep detection error: $error');
+    // Don't update UI for sleep detection errors, just log them
+  }
+  
+  /// Handle network movement detection
+  void _handleNetworkMovementDetected(String changeType, Map<String, dynamic> details) {
+    developer.log('Network movement detected: $changeType');
+    developer.log('Details: $details');
+    
+    // Check if this is a significant movement that should trigger location update
+    if (NetworkMovementService.isSignificantNetworkChange(changeType, details)) {
+      developer.log('Significant network movement detected - triggering location update');
+      
+      // Force an immediate location update since user has moved
+      forceLocationUpdate();
+      
+      // Update status to show network-based movement detection
+      final description = NetworkMovementService.getNetworkChangeDescription(changeType, details);
+      _status = 'Location sharing active (Network movement detected)';
+      if (_mounted) notifyListeners();
+      
+      // Log for debugging
+      developer.log('Network movement trigger: $description');
+    } else {
+      developer.log('Network change detected but not significant enough to trigger location update');
+    }
+  }
+  
+  /// Handle network movement errors
+  void _handleNetworkError(String error) {
+    developer.log('Network movement error: $error');
+    // Don't update UI for network errors, just log them
+  }
+  
+  /// Handle sensor fusion movement detection
+  void _handleSensorMovementDetected(String eventType, Map<String, dynamic> data, Map<String, dynamic> context) {
+    developer.log('Sensor movement detected: $eventType');
+    developer.log('Data: $data');
+    developer.log('Context: $context');
+    
+    // Check if this is a significant movement that should trigger location update
+    if (SensorFusionService.isSignificantMovement(eventType, data)) {
+      developer.log('Significant sensor movement detected - triggering location update');
+      
+      // Force an immediate location update since user has moved
+      forceLocationUpdate();
+      
+      // Update status to show sensor-based movement detection
+      final description = SensorFusionService.getMovementDescription(eventType, data, context);
+      _status = 'Location sharing active (Sensor movement detected)';
+      if (_mounted) notifyListeners();
+      
+      // Log for debugging
+      developer.log('Sensor movement trigger: $description');
+      
+      // Special handling for specific movement types
+      switch (eventType) {
+        case 'MOVEMENT_CLASSIFIED':
+          final movementType = data['movementType'] as String?;
+          if (movementType != null) {
+            _handleMovementTypeChange(movementType);
+          }
+          break;
+          
+        case 'STAIRS_DETECTED':
+          developer.log('Stairs climbing detected - high precision tracking');
+          // Stairs indicate vertical movement, trigger more frequent updates
+          break;
+          
+        case 'ENTERED_OUTDOOR':
+          developer.log('Outdoor environment detected - likely starting journey');
+          // Going outdoor often means starting a trip
+          break;
+      }
+    } else {
+      developer.log('Sensor movement detected but not significant enough to trigger location update');
+    }
+  }
+  
+  /// Handle movement type changes from sensor fusion
+  void _handleMovementTypeChange(String movementType) {
+    developer.log('Movement type classified: $movementType');
+    
+    // Update tracking mode based on detected movement type
+    switch (movementType) {
+      case 'RUNNING':
+      case 'WALKING':
+        // Switch to active mode for precise tracking
+        _adjustLocationFrequency(true);
+        break;
+        
+      case 'VEHICLE':
+        // Switch to driving mode for navigation-grade tracking
+        _adjustLocationFrequency(true);
+        break;
+        
+      case 'STILL':
+        // Switch to idle/sleep mode for battery saving
+        _adjustLocationFrequency(false);
+        break;
+    }
+  }
+  
+  /// Handle sensor fusion errors
+  void _handleSensorError(String error) {
+    developer.log('Sensor fusion error: $error');
+    // Don't update UI for sensor errors, just log them
   }
 
   @override

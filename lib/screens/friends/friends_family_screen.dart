@@ -430,6 +430,16 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
         ? status.substring(status.indexOf('(') + 1, status.indexOf(')')) 
         : null;
     
+    // Extract sleep state from status
+    String? sleepState;
+    if (status.contains('Sleeping')) {
+      sleepState = 'sleeping';
+    } else if (status.contains('Idle')) {
+      sleepState = 'idle';
+    } else if (activity != null) {
+      sleepState = activity.toLowerCase();
+    }
+    
     return GestureDetector(
       onTap: () {
         if (isOn && !_isToggling) {
@@ -517,18 +527,18 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
                   ),
                 ),
               ),
-              // Show activity icon when available
-              if (isOn && activity != null && !_isToggling)
+              // Show activity/sleep icon when available
+              if (isOn && sleepState != null && !_isToggling)
                 Padding(
                   padding: const EdgeInsets.only(left: 2),
                   child: Icon(
-                    _getActivityIcon(activity),
+                    _getActivityIcon(sleepState),
                     size: 10,
-                    color: Colors.green.withValues(alpha: 0.7),
+                    color: _getActivityColor(sleepState),
                   ),
                 ),
               // Add a small indicator when ON but no activity detected (long press to update)
-              if (isOn && activity == null && !_isToggling)
+              if (isOn && sleepState == null && !_isToggling)
                 Padding(
                   padding: const EdgeInsets.only(left: 2),
                   child: Icon(
@@ -546,7 +556,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
 
   bool _isToggling = false; // Add state to prevent multiple toggles
   
-  /// Returns an appropriate icon for the detected activity
+  /// Returns an appropriate icon for the detected activity or sleep state
   IconData _getActivityIcon(String activity) {
     switch (activity.toLowerCase()) {
       case 'walking':
@@ -559,8 +569,37 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
         return Icons.directions_car;
       case 'still':
         return Icons.accessibility_new;
+      case 'sleeping':
+        return Icons.bedtime;
+      case 'idle':
+        return Icons.pause_circle;
+      case 'active':
+        return Icons.directions_walk;
+      case 'driving':
+        return Icons.directions_car;
       default:
         return Icons.device_unknown;
+    }
+  }
+  
+  /// Returns appropriate color for the activity or sleep state
+  Color _getActivityColor(String activity) {
+    switch (activity.toLowerCase()) {
+      case 'sleeping':
+        return Colors.blue;
+      case 'idle':
+        return Colors.orange;
+      case 'walking':
+      case 'running':
+      case 'active':
+        return Colors.green;
+      case 'in vehicle':
+      case 'driving':
+        return Colors.purple;
+      case 'on bicycle':
+        return Colors.teal;
+      default:
+        return Colors.green.withValues(alpha: 0.7);
     }
   }
   
