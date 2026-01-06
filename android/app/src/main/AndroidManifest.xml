@@ -1,4 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.sundeep.groupsharing">
 
     <!-- Required permissions -->
@@ -43,6 +44,8 @@
 <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+<!-- Required for flutter_background_geolocation -->
+<uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
 <!-- Remove storage/keyguard legacy perms not needed for location sharing -->
 <!-- Remove risky/vendor/system-only permissions to satisfy Play policies -->
@@ -64,7 +67,8 @@
         android:label="GroupSharing"
         android:icon="@mipmap/launcher_icon"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+        android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+        tools:replace="android:label">
 
         <!-- Google Play Services Version -->
         <meta-data

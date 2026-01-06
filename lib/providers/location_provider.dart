@@ -24,6 +24,7 @@ import '../services/emergency_offline_tracker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/background_geolocation_service.dart';
 
 /// Enhanced Location Provider that uses the Persistent Location Service
 /// This provider ensures location tracking continues even when the app is killed
@@ -233,51 +234,33 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
       // Save tracking state
       await _saveTrackingState(userId, true);
       
-      // CRITICAL: Use Universal Location Integration Service
-      // This ensures ALL authenticated users get the same working functionality
-      // that was previously only available to test users
+      // --- NEW IMPLEMENTATION: Use Patched Background Geolocation Service ---
+      developer.log('Starting BackgroundGeolocationService for user: $userId');
+      await BackgroundGeolocationService.startTracking(userId);
+
+      // Start sync monitoring (Keep this for UI updates from Firebase)
+      _startSyncMonitoring();
+      
+      // Initialize emergency offline tracker for safety (Keep as backup)
+      await EmergencyOfflineTracker.initialize(userId);
+      
+      _isTracking = true;
+      _userSharingStatus[userId] = true;
+      _status = 'Location sharing active (Patched Service)';
+      if (_mounted) notifyListeners();
+      
+      return true;
+      // ---------------------------------------------------------------------
+
+      /* 
+      // LEGACY CODE DISABLED
       UniversalLocationIntegrationService.onLocationUpdate = _handleLocationUpdate;
       UniversalLocationIntegrationService.onError = _handleLocationError;
       UniversalLocationIntegrationService.onServiceStopped = _handleServiceStopped;
       
-      // Start activity recognition service on Android
-      if (Platform.isAndroid) {
-        await ActivityRecognitionService.startTracking(userId);
-      }
-      
-      // Start sleep detection monitoring
-      await SleepDetectionService.startMonitoring();
-      
-      // Start network movement monitoring
-      if (Platform.isAndroid) {
-        await NetworkMovementService.startMonitoring();
-      }
-      
-      // Start sensor fusion monitoring
-      if (Platform.isAndroid) {
-        await SensorFusionService.startMonitoring();
-      }
-      
       final universalStarted = await UniversalLocationIntegrationService.startLocationTrackingForUser(userId);
-      
-      if (!universalStarted) {
-        developer.log('Universal service failed, falling back to legacy services');
-        
-        // Fallback to legacy implementation
-        await _updateLocationSharingStatus(userId, true);
-        
-        final nativeStarted = await _startNativeBackgroundService(userId);
-        final persistentStarted = await PersistentLocationService.startTracking(
-          userId: userId,
-          onLocationUpdate: _handleLocationUpdate,
-          onError: _handleLocationError,
-          onServiceStopped: _handleServiceStopped,
-        );
-        
-        if (!persistentStarted && !nativeStarted) {
-          await _startFallbackTracking(userId);
-        }
-      }
+      if (!universalStarted) { ... } 
+      */
       
       // Start sync monitoring
       _startSyncMonitoring();

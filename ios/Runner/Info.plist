@@ -103,7 +103,7 @@
 	
 	<!-- Motion and fitness permissions -->
 	<key>NSMotionUsageDescription</key>
-	<string>This app uses motion sensors to detect when you're driving for automatic trip tracking.</string>
+	<string>This app uses motion sensors to detect when you're moving to efficiently track your location.</string>
 	
 	<!-- Microphone permission for emergency features -->
 	<key>NSMicrophoneUsageDescription</key>

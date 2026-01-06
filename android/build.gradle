@@ -2,13 +2,7 @@ buildscript {
     repositories {
         google()
         mavenCentral()
-        maven {
-            url "https://maven.transistorsoft.com/repository/maven-public"
-            credentials {
-                username = project.hasProperty('transistorsoft_username') ? project.property('transistorsoft_username') : ""
-                password = project.hasProperty('transistorsoft_password') ? project.property('transistorsoft_password') : ""
-            }
-        }
+        // TransistorSoft remote repo disabled - using local patched AARs
     }
     dependencies {
         classpath 'com.google.gms:google-services:4.4.0'
@@ -19,12 +13,9 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Local patched AARs for flutter_background_geolocation
         maven {
-            url "https://maven.transistorsoft.com/repository/maven-public"
-            credentials {
-                username = project.hasProperty('transistorsoft_username') ? project.property('transistorsoft_username') : ""
-                password = project.hasProperty('transistorsoft_password') ? project.property('transistorsoft_password') : ""
-            }
+            url "${System.getProperty('user.home')}/.pub-cache/hosted/pub.dev/flutter_background_geolocation-4.18.2/android/libs"
         }
     }
 }

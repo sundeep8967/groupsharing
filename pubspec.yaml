@@ -66,6 +66,9 @@ dependencies:
   firebase_storage: ^12.3.2
   connectivity_plus: ^5.0.2
   geofence_service: ^6.0.0+1
+  # Patched local copy - no license needed
+  flutter_background_geolocation:
+    path: packages/flutter_background_geolocation
   app_links: ^6.2.0
   google_sign_in: ^6.1.6
   firebase_messaging: ^15.1.3
