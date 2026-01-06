@@ -3,12 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'services/fcm_service.dart';
-import 'providers/auth_provider.dart';
+import 'providers/auth_provider_fixed.dart';
 import 'providers/location_provider.dart';
-import 'screens/auth/login_screen.dart';
+import 'screens/auth/login_screen_fixed.dart';
 import 'screens/main/main_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/comprehensive_permission_screen.dart';
@@ -309,7 +310,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => AuthProviderFixed()),
         ChangeNotifierProvider(
           create: (_) {
             final locationProvider = LocationProvider();
@@ -337,7 +338,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         ),
         home: _buildHome(),
         routes: {
-          '/login': (context) => const LoginScreen(),
+          '/login': (context) => const LoginScreenFixed(),
           '/main': (context) => const MainScreen(),
           '/onboarding': (context) => const OnboardingScreen(),
           '/performance-monitor': (context) => const PerformanceMonitorScreen(),
@@ -398,14 +399,29 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
     
     // Show normal app flow if permissions are granted
-    return Consumer<AuthProvider>(
-      builder: (context, auth, _) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
         if (!widget.isOnboardingComplete) {
           return const OnboardingScreen();
         }
-        return auth.isAuthenticated
-            ? const MainScreen()
-            : const LoginScreen();
+        
+        // Show loading while waiting for auth state
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+        
+        // Check if user is authenticated
+        final user = snapshot.data;
+        if (user != null) {
+          return const MainScreen();
+        } else {
+          return const LoginScreenFixed();
+        }
       },
     );
   }

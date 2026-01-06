@@ -130,7 +130,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
   }
 
   Future<void> _sendFriendRequest(String targetEmailOrCode) async {
-    final currentUser = Provider.of<app_auth.AuthProviderFixed>(context, listen: false).user;
+    final currentUser = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
     if (currentUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please log in to send requests.')),
@@ -400,7 +400,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
 
   /// Gets the friendship status between current user and target user
   Future<String> _getFriendshipStatus(String targetUserId) async {
-    final currentUser = Provider.of<app_auth.AuthProviderFixed>(context, listen: false).user;
+    final currentUser = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
     if (currentUser == null) return 'none';
     
     return await _friendService.getFriendshipStatus(currentUser.uid, targetUserId);
@@ -453,7 +453,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
               icon: const Icon(Icons.check_circle, color: Colors.green, size: 20),
               onPressed: () async {
                 // Find the pending request and accept it
-                final currentUser = Provider.of<app_auth.AuthProviderFixed>(context, listen: false).user;
+                final currentUser = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
                 if (currentUser == null) return;
                 
                 try {
@@ -479,7 +479,7 @@ class _AddFriendsScreenState extends State<AddFriendsScreen> with SingleTickerPr
               icon: const Icon(Icons.cancel, color: Colors.red, size: 20),
               onPressed: () async {
                 // Find the pending request and decline it
-                final currentUser = Provider.of<app_auth.AuthProviderFixed>(context, listen: false).user;
+                final currentUser = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
                 if (currentUser == null) return;
                 
                 try {

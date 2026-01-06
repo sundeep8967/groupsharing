@@ -88,8 +88,7 @@ dependencies {
     implementation 'com.google.android.gms:play-services-base:18.2.0'
     // Activity Recognition API
     implementation 'com.google.android.gms:play-services-awareness:19.0.1'
-    // Firebase for native background updates
-    implementation 'com.google.firebase:firebase-database:20.3.0'
+    // Firebase for native background updates (version managed by BOM)
     implementation 'androidx.multidex:multidex:2.0.1'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
     
@@ -98,7 +97,7 @@ dependencies {
     implementation 'com.google.guava:guava:31.1-android'
     
     // Firebase dependencies
-    implementation platform('com.google.firebase:firebase-bom:32.7.0')
+    implementation platform('com.google.firebase:firebase-bom:33.7.0')
     implementation 'com.google.firebase:firebase-database-ktx'
     implementation 'com.google.firebase:firebase-auth-ktx'
     implementation 'com.google.firebase:firebase-messaging-ktx'

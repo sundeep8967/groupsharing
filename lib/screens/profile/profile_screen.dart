@@ -7,7 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:share_plus/share_plus.dart';
-import '../../providers/auth_provider.dart' as app_auth;
+import '../../providers/auth_provider_fixed.dart' as app_auth;
 import '../../services/firebase_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/services.dart';
@@ -41,7 +41,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _refreshProfileData() async {
     try {
-      final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+      final authProvider = Provider.of<app_auth.AuthProviderFixed>(context, listen: false);
       final user = authProvider.user;
       
       if (user != null) {
@@ -78,7 +78,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final user = Provider.of<app_auth.AuthProvider>(context).user;
+    final user = Provider.of<app_auth.AuthProviderFixed>(context).user;
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
@@ -109,7 +109,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             icon: const Icon(Icons.exit_to_app, size: 24),
             onPressed: _isSigningOut ? null : () async {
               setState(() => _isSigningOut = true);
-              final success = await Provider.of<app_auth.AuthProvider>(context, listen: false).signOut();
+              final success = await Provider.of<app_auth.AuthProviderFixed>(context, listen: false).signOut();
               if (!mounted) return;
               setState(() => _isSigningOut = false);
               if (success) {
@@ -441,7 +441,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _uploadAndUpdateProfile() async {
     if (_imageFile == null) return;
 
-    final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+    final authProvider = Provider.of<app_auth.AuthProviderFixed>(context, listen: false);
     final userId = authProvider.user!.uid;
     final ref = FirebaseStorage.instance.ref().child('user_photos').child('$userId.jpg');
 
@@ -525,38 +525,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _isLoading = true);
     
     try {
-      final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
-      final result = await authProvider.deleteUserAccount();
-      
-      if (!mounted) return;
-      
-      if (result.success) {
-        // Account deleted successfully
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/login',
-          (route) => false,
-        );
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Account deleted successfully'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      } else if (result.requiresReauth) {
-        // Show re-authentication required
-        _showReauthDialog();
-      } else {
-        // Show error message
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.error ?? 'Failed to delete account'),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
+      // Account deletion temporarily disabled - feature needs proper implementation
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Account deletion feature is currently unavailable')),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -601,7 +573,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   
  // Handle re-authentication flow
 Future<void> _handleReauthentication() async {
-  final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+  final authProvider = Provider.of<app_auth.AuthProviderFixed>(context, listen: false);
 
   // Optional: Check if already signed out before calling again
   // If your AuthProvider tracks auth state, you could avoid unnecessary signOut calls

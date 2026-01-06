@@ -28,7 +28,7 @@ class PersistentLocationService {
   // Configuration
   static const Duration _foregroundLocationInterval = Duration(seconds: 15);
   static const Duration _backgroundLocationInterval = Duration(minutes: 3);
-  static const Duration _heartbeatInterval = Duration(seconds: 30);
+  static const Duration _heartbeatInterval = Duration(minutes: 10);
   static const double _distanceFilter = 10.0; // meters
   static const LocationAccuracy _desiredAccuracy = LocationAccuracy.high;
 

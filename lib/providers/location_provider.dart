@@ -20,6 +20,7 @@ import '../services/activity_recognition_service.dart';
 import '../services/sleep_detection_service.dart';
 import '../services/network_movement_service.dart';
 import '../services/sensor_fusion_service.dart';
+import '../services/emergency_offline_tracker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -280,6 +281,10 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
       
       // Start sync monitoring
       _startSyncMonitoring();
+      
+      // Initialize emergency offline tracker for safety
+      await EmergencyOfflineTracker.initialize(userId);
+      developer.log('Emergency offline tracker initialized for safety');
       
       _isTracking = true;
       _userSharingStatus[userId] = true;
@@ -1278,10 +1283,22 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
     _stopHealthMonitoring();
     _stopSyncMonitoring();
     
+    // CRITICAL FIX: Cancel all timers to prevent memory leaks
+    _healthCheckTimer?.cancel();
+    _syncTimer?.cancel();
+    
     // Cancel subscriptions
     _realtimeLocationSubscription?.cancel();
     _realtimeStatusSubscription?.cancel();
     _fallbackLocationSubscription?.cancel();
+    
+    // CRITICAL FIX: Stop all services to prevent background operations
+    if (Platform.isAndroid) {
+      ActivityRecognitionService.stopTracking();
+      SleepDetectionService.stopMonitoring();
+      NetworkMovementService.stopMonitoring();
+      SensorFusionService.stopMonitoring();
+    }
     
     // Dispose performance optimizer
     _performanceOptimizer.dispose();

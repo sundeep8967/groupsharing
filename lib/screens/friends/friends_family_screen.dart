@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
-import '../../providers/auth_provider.dart' as app_auth;
+import '../../providers/auth_provider_fixed.dart' as app_auth;
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/friend_service.dart';
 import '../../models/user_model.dart';
@@ -44,7 +44,7 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = Provider.of<app_auth.AuthProvider>(context).user;
+    final user = Provider.of<app_auth.AuthProviderFixed>(context).user;
     if (user == null) {
       return const Center(child: Text('Please log in.'));
     }
@@ -150,7 +150,21 @@ class _FriendsFamilyScreenState extends State<FriendsFamilyScreen> {
                   return Center(child: Text('Error: ${snapshot.error}'));
                 }
                 final List<FriendRelationship> friendRelationships = snapshot.data ?? [];
+                
+                // DEBUG: Print all friends displayed in Circle screen
+                debugPrint('👥 CIRCLE SCREEN - Found ${friendRelationships.length} friends:');
+                for (int i = 0; i < friendRelationships.length; i++) {
+                  final friend = friendRelationships[i];
+                  debugPrint('  ${i + 1}. ${friend.user.displayName.isNotEmpty ? friend.user.displayName : 'Unknown'} (ID: ${friend.user.uid.substring(0, 8)})');
+                  debugPrint('     Email: ${friend.user.email}');
+                  debugPrint('     Category: ${friend.categoryDisplayName}');
+                  debugPrint('     Location sharing: ${friend.user.locationSharingEnabled}');
+                  debugPrint('     Last seen: ${friend.user.lastSeen}');
+                  debugPrint('     Friendship ID: ${friend.friendshipId}');
+                }
+                
                 if (friendRelationships.isEmpty) {
+                  debugPrint('❌ CIRCLE SCREEN - No friends found');
                   return Center(
                     child: Text(
                       'No friends yet. Add some!',

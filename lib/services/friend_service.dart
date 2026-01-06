@@ -4,6 +4,7 @@ import '../models/friendship_model.dart'; // Assuming FriendshipModel will be ne
 import '../models/friend_relationship.dart'; // New model for friend relationships
 import 'firebase_service.dart'; // For accessing Firestore collections
 import 'dart:developer' as developer;
+import 'dart:async';
 
 class FriendService {
   final FirebaseFirestore _firestore = FirebaseService.firestore;
@@ -16,7 +17,8 @@ class FriendService {
       final querySnapshot = await _usersCollection
           .where('friendCode', isEqualTo: friendCode)
           .limit(1)
-          .get();
+          .get()
+          .timeout(const Duration(seconds: 10));
 
       if (querySnapshot.docs.isNotEmpty) {
         final userDoc = querySnapshot.docs.first;
@@ -61,14 +63,18 @@ class FriendService {
     }
   }
 
-  // Method to send a friend request
+  // Method to send a friend request (OPTIMIZED: With validation and timeout)
   Future<void> sendFriendRequest(String currentUserUID, String targetUserUID) async {
     developer.log('[FriendService] Attempting to send friend request from $currentUserUID to $targetUserUID');
 
+    // Input validation
+    if (currentUserUID.isEmpty || targetUserUID.isEmpty) {
+      throw Exception('Invalid user IDs provided.');
+    }
+
     if (currentUserUID == targetUserUID) {
       developer.log('[FriendService] User cannot send a friend request to themselves.');
-      // Optionally, throw an exception or return a status
-      return;
+      throw Exception('You cannot send a friend request to yourself.');
     }
 
     try {
@@ -149,12 +155,13 @@ class FriendService {
     }
   }
 
-  // Method to accept a friend request
+  // Method to accept a friend request (OPTIMIZED: Using transaction)
   Future<void> acceptFriendRequest(String requestID) async {
     developer.log('[FriendService] Attempting to accept friend request: $requestID');
     try {
       final requestDocRef = _friendshipsCollection.doc(requestID);
-      final requestSnapshot = await requestDocRef.get();
+      final requestSnapshot = await requestDocRef.get()
+          .timeout(const Duration(seconds: 10));
 
       if (!requestSnapshot.exists) {
         throw Exception('Friend request document not found.');
@@ -165,31 +172,36 @@ class FriendService {
         throw Exception('Friend request data is null.');
       }
 
-      final String senderUID = requestData['from']; // Changed: userId -> from
-      final String receiverUID = requestData['to'];   // Changed: friendId -> to
+      final String senderUID = requestData['from'];
+      final String receiverUID = requestData['to'];
 
-      // Update the friendship document status to accepted
-      await requestDocRef.update({
-        'status': FriendshipStatus.accepted.toString(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      // Use transaction to ensure all operations succeed or fail together
+      await _firestore.runTransaction((transaction) async {
+        // Update the friendship document status to accepted
+        transaction.update(requestDocRef, {
+          'status': FriendshipStatus.accepted.toString(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
 
-      // Add users to each other's friends lists (in the users collection)
-      // This assumes users documents have a 'friends' array field.
-      final senderUserDocRef = _usersCollection.doc(senderUID);
-      await senderUserDocRef.update({
-        'friends': FieldValue.arrayUnion([receiverUID]),
-        'updatedAt': FieldValue.serverTimestamp(), // Also update user's updatedAt
-      });
+        // Add users to each other's friends lists
+        final senderUserDocRef = _usersCollection.doc(senderUID);
+        transaction.update(senderUserDocRef, {
+          'friends': FieldValue.arrayUnion([receiverUID]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
 
-      final receiverUserDocRef = _usersCollection.doc(receiverUID);
-      await receiverUserDocRef.update({
-        'friends': FieldValue.arrayUnion([senderUID]),
-        'updatedAt': FieldValue.serverTimestamp(), // Also update user's updatedAt
-      });
+        final receiverUserDocRef = _usersCollection.doc(receiverUID);
+        transaction.update(receiverUserDocRef, {
+          'friends': FieldValue.arrayUnion([senderUID]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }).timeout(const Duration(seconds: 15));
 
       developer.log('[FriendService] Friend request $requestID accepted successfully.');
 
+    } on TimeoutException {
+      developer.log('[FriendService] Accept friend request operation timed out');
+      throw Exception('Operation timed out. Please try again.');
     } catch (e) {
       developer.log('[FriendService] Error accepting friend request $requestID: $e');
       throw Exception('Failed to accept friend request: ${e.toString()}');
@@ -469,35 +481,42 @@ class FriendService {
     }
   }
 
-  /// Remove/Unfriend a user
+  /// Remove/Unfriend a user (OPTIMIZED: Using transaction for data consistency)
   Future<void> removeFriend(String currentUserUID, String friendUID) async {
     developer.log('[FriendService] Attempting to remove friend: $currentUserUID removing $friendUID');
     try {
       // Find the friendship document between the two users
-      final friendship = await getFriendshipBetweenUsers(currentUserUID, friendUID);
+      final friendship = await getFriendshipBetweenUsers(currentUserUID, friendUID)
+          .timeout(const Duration(seconds: 10));
       
       if (friendship == null) {
         throw Exception('No friendship found between users.');
       }
       
-      // Delete the friendship document
-      await _friendshipsCollection.doc(friendship.id).delete();
-      
-      // Remove from each other's friends lists in user documents
-      final currentUserDocRef = _usersCollection.doc(currentUserUID);
-      await currentUserDocRef.update({
-        'friends': FieldValue.arrayRemove([friendUID]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      
-      final friendUserDocRef = _usersCollection.doc(friendUID);
-      await friendUserDocRef.update({
-        'friends': FieldValue.arrayRemove([currentUserUID]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      // Use transaction to ensure all operations succeed or fail together
+      await _firestore.runTransaction((transaction) async {
+        // Delete the friendship document
+        transaction.delete(_friendshipsCollection.doc(friendship.id));
+        
+        // Remove from each other's friends lists in user documents
+        final currentUserDocRef = _usersCollection.doc(currentUserUID);
+        transaction.update(currentUserDocRef, {
+          'friends': FieldValue.arrayRemove([friendUID]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        
+        final friendUserDocRef = _usersCollection.doc(friendUID);
+        transaction.update(friendUserDocRef, {
+          'friends': FieldValue.arrayRemove([currentUserUID]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }).timeout(const Duration(seconds: 15));
       
       developer.log('[FriendService] Successfully removed friendship between $currentUserUID and $friendUID');
       
+    } on TimeoutException {
+      developer.log('[FriendService] Remove friend operation timed out');
+      throw Exception('Operation timed out. Please try again.');
     } catch (e) {
       developer.log('[FriendService] Error removing friend: $e');
       throw Exception('Failed to remove friend: ${e.toString()}');

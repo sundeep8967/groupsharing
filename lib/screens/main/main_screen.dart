@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:groupsharing/widgets/smooth_modern_map.dart';
 import 'package:groupsharing/models/map_marker.dart';
-import '../../providers/auth_provider.dart' as app_auth;
+import '../../providers/auth_provider_fixed.dart' as app_auth;
 import '../../providers/location_provider.dart';
 import '../friends/friends_family_screen.dart';
 import '../profile/profile_screen.dart';
@@ -48,6 +48,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   
   int _unseenNotificationCount = 0;
   
+  // Friend search functionality
+  String _friendSearchQuery = '';
+  Set<MapMarker> _filteredMarkers = {};
+  
   // Add a field to track the dialog
   BuildContext? _locationDialogContext;
   
@@ -67,7 +71,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   /// Check if location sharing is working properly
   bool _isLocationSharingWorking() {
     final locationProvider = Provider.of<LocationProvider>(context, listen: false);
-    final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+    final authProvider = Provider.of<app_auth.AuthProviderFixed>(context, listen: false);
     
     // Don't show fix button if user is not logged in
     if (authProvider.user == null) return true;
@@ -179,7 +183,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       });
     });
 
-    final appUser = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
+    final appUser = Provider.of<app_auth.AuthProviderFixed>(context, listen: false).user;
     if (appUser != null) {
       FirebaseFirestore.instance
         .collection('users')
@@ -213,7 +217,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   void _initializeTracking() {
     try {
-      final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+      final authProvider = Provider.of<app_auth.AuthProviderFixed>(context, listen: false);
       final locationProvider = Provider.of<LocationProvider>(context, listen: false);
 
       final appUser = authProvider.user;
@@ -230,7 +234,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Future<void> _initializeLife360Services() async {
     if (_life360ServicesInitialized) return;
     
-    final user = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
+    final user = Provider.of<app_auth.AuthProviderFixed>(context, listen: false).user;
     if (user == null) return;
 
     try {
@@ -506,7 +510,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildMapScreen() {
-    return Consumer2<LocationProvider, app_auth.AuthProvider>(
+    return Consumer2<LocationProvider, app_auth.AuthProviderFixed>(
       builder: (context, locationProvider, authProvider, _) {
         // ALWAYS show the map - get current location for map display if needed
         // Only request location once when first building the map
@@ -519,8 +523,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           });
         }
 
-        // Update markers only when nearby users change
-        _updateMarkersIfNeeded(locationProvider);
+        // Update markers only when nearby users change (but not repeatedly)
+        if (_cachedMarkers.isEmpty) {
+          _updateMarkersIfNeeded(locationProvider);
+        }
 
         // AUTO-CENTER: Use current location as priority for initial map center
         final currentLocation = locationProvider.currentLocation;
@@ -547,7 +553,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     userLocation: currentLocation, // Always pass current location if available
                     userPhotoUrl: authProvider.user?.photoURL, // Pass user's profile picture
                     isLocationRealTime: locationProvider.isTracking, // Real-time if actively tracking
-                    markers: _cachedMarkers,
+                    markers: _friendSearchQuery.isEmpty ? _cachedMarkers : _filteredMarkers,
                     showUserLocation: true, // Always show user location marker when location is available
                     onMarkerTap: (marker) => _showMarkerDetails(context, marker),
                     onMapMoved: (center, zoom) {
@@ -556,6 +562,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         _lastMapZoom = zoom;
                       });
                     },
+                    onFriendSearch: (query) => _filterFriends(query),
                   ),
                 ),
               ),
@@ -620,7 +627,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildLoadingScreen(LocationProvider locationProvider, app_auth.AuthProvider authProvider) {
+  Widget _buildLoadingScreen(LocationProvider locationProvider, app_auth.AuthProviderFixed authProvider) {
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: Center(
@@ -665,49 +672,305 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   void _updateMarkersIfNeeded(LocationProvider locationProvider) {
-    // Build markers from userLocations map with friend information
-    final userLocations = locationProvider.userLocations;
-    final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+    final authProvider = Provider.of<app_auth.AuthProviderFixed>(context, listen: false);
     final currentUserId = authProvider.user?.uid;
     
-    if (currentUserId == null || userLocations.isEmpty) return;
+    debugPrint('🗺️ MAP CLICKED - Starting to load friends for user: ${currentUserId?.substring(0, 8)}');
     
-    final markers = <MapMarker>{};
-    
-    for (final entry in userLocations.entries) {
-      final userId = entry.key;
-      final location = entry.value;
-      
-      // Null safety checks
-      if (userId.isEmpty) continue;
-      
-      // Skip current user - they're shown with the user location marker
-      if (userId == currentUserId) continue;
-      
-      // Only show markers for users who are actively sharing location
-      if (!locationProvider.isUserSharingLocation(userId)) continue;
-      
-      // Simple marker without async Firestore calls to prevent null exceptions
-      markers.add(MapMarker(
-        id: userId,
-        point: location,
-        label: 'Friend',
-        color: Colors.blue,
-      ));
+    if (currentUserId == null) {
+      debugPrint('❌ No current user ID found');
+      return;
     }
     
-    // Only update if markers actually changed and we're still mounted
-    if (mounted && (_cachedMarkers.length != markers.length || 
-        !_cachedMarkers.every((m) => markers.any((newM) => newM.id == m.id && newM.point == m.point)))) {
-      // Defer setState to after the current build to avoid "setState during build" exceptions
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
+    // Load all friends (both online and offline)
+    _loadAllFriendsMarkers(currentUserId, locationProvider);
+  }
+
+  /// Load all friends and show them on map (both online and offline)
+  Future<void> _loadAllFriendsMarkers(String currentUserId, LocationProvider locationProvider) async {
+    try {
+      debugPrint('🔍 Loading friends from Firestore...');
+      
+      // Try multiple friendship collection structures
+      var friendsSnapshot = await FirebaseFirestore.instance
+          .collection('friendships')
+          .where('users', arrayContains: currentUserId)
+          .where('status', isEqualTo: 'accepted')
+          .get();
+
+      final markers = <MapMarker>{};
+      
+      debugPrint('📊 Found ${friendsSnapshot.docs.length} friendship documents in "friendships" collection');
+      
+      // If no friendships found, try alternative collection names
+      if (friendsSnapshot.docs.isEmpty) {
+        debugPrint('🔍 Trying "friends" collection...');
+        friendsSnapshot = await FirebaseFirestore.instance
+            .collection('friends')
+            .where('users', arrayContains: currentUserId)
+            .get();
+        debugPrint('📊 Found ${friendsSnapshot.docs.length} documents in "friends" collection');
+      }
+      
+      // If still no friends, try user's friends subcollection
+      if (friendsSnapshot.docs.isEmpty) {
+        debugPrint('🔍 Trying user subcollection "friends"...');
+        friendsSnapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUserId)
+            .collection('friends')
+            .get();
+        debugPrint('📊 Found ${friendsSnapshot.docs.length} documents in user friends subcollection');
+      }
+      
+      // If still no friends, check what collections exist
+      if (friendsSnapshot.docs.isEmpty) {
+        debugPrint('🔍 Checking what friendship-related collections exist...');
+        
+        // Check if there are any friendship requests
+        final requestsSnapshot = await FirebaseFirestore.instance
+            .collection('friendship_requests')
+            .where('from', isEqualTo: currentUserId)
+            .get();
+        debugPrint('📊 Found ${requestsSnapshot.docs.length} outgoing friendship requests');
+        
+        final incomingRequestsSnapshot = await FirebaseFirestore.instance
+            .collection('friendship_requests')
+            .where('to', isEqualTo: currentUserId)
+            .get();
+        debugPrint('📊 Found ${incomingRequestsSnapshot.docs.length} incoming friendship requests');
+        
+        // Check user document for friends array
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUserId)
+            .get();
+        
+        if (userDoc.exists) {
+          final userData = userDoc.data()!;
+          final friendsList = userData['friends'] as List?;
+          debugPrint('📊 User document friends array: ${friendsList?.length ?? 0} friends');
+          debugPrint('👥 Friends list: $friendsList');
+          
+          // Process friends from user document array
+          if (friendsList != null && friendsList.isNotEmpty) {
+            debugPrint('🔄 Processing friends from user document array...');
+            for (final friendId in friendsList) {
+              if (friendId is String && friendId.isNotEmpty) {
+                debugPrint('👤 Processing friend from array: ${friendId.substring(0, 8)}');
+                
+                // Get friend's profile data
+                final friendDoc = await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(friendId)
+                    .get();
+                    
+                if (!friendDoc.exists) {
+                  debugPrint('❌ Friend profile not found for: ${friendId.substring(0, 8)}');
+                  continue;
+                }
+                
+                debugPrint('✅ Friend profile found');
+                
+                final friendData = friendDoc.data()!;
+                final friendName = friendData['displayName'] ?? 
+                                  friendData['name'] ?? 
+                                  friendData['email']?.split('@')[0] ?? 
+                                  'Friend';
+                
+                debugPrint('👤 Friend name: "$friendName"');
+                debugPrint('📧 Friend email: ${friendData['email']}');
+                debugPrint('📸 Profile photo URL: ${friendData['photoURL']}');
+                debugPrint('🖼️ Profile image URL: ${friendData['profileImageUrl']}');
+                debugPrint('📷 Photo URL: ${friendData['photoUrl']}');
+                debugPrint('🔍 All friend data keys: ${friendData.keys.toList()}');
+                
+                // Check if friend has location data
+                final userLocations = locationProvider.userLocations;
+                final friendLocation = userLocations[friendId];
+                debugPrint('📍 Real-time location: ${friendLocation != null ? "YES" : "NO"}');
+                debugPrint('🔄 Is sharing location: ${locationProvider.isUserSharingLocation(friendId)}');
+                
+                LatLng? markerLocation;
+                Color markerColor;
+                
+                if (friendLocation != null && locationProvider.isUserSharingLocation(friendId)) {
+                  // Friend is online and sharing location - use real location
+                  markerLocation = friendLocation;
+                  markerColor = Colors.green; // Online
+                  debugPrint('🟢 Using real-time location: $markerLocation.latitude, $markerLocation.longitude');
+                } else {
+                  // Friend is offline - use last known location or default location
+                  final lastLocation = friendData['location'];
+                  debugPrint('📍 Last known location data: $lastLocation');
+                  
+                  if (lastLocation != null && lastLocation['lat'] != null && lastLocation['lng'] != null) {
+                    markerLocation = LatLng(
+                      lastLocation['lat'].toDouble(),
+                      lastLocation['lng'].toDouble(),
+                    );
+                    markerColor = Colors.grey; // Offline
+                    debugPrint('⚫ Using last known location: $markerLocation.latitude, $markerLocation.longitude');
+                  } else {
+                    // No location data available - skip this friend
+                    debugPrint('❌ No location data available for $friendName - SKIPPING');
+                    continue;
+                  }
+                }
+                
+                // Add friend marker
+                final marker = MapMarker(
+                  id: friendId,
+                  point: markerLocation,
+                  label: friendName,
+                  color: markerColor,
+                  photoUrl: friendData['photoUrl'], // Fixed: use 'photoUrl' not 'photoURL'
+                );
+                markers.add(marker);
+                debugPrint('✅ Added friend marker: $friendName (${friendId.substring(0, 8)}) at $markerLocation.latitude, $markerLocation.longitude');
+              }
+            }
+          }
+        }
+      }
+      
+      // Handle different friendship document structures
+      if (friendsSnapshot.docs.isNotEmpty) {
+        for (final friendshipDoc in friendsSnapshot.docs) {
+          debugPrint('🤝 Processing friendship: ${friendshipDoc.id}');
+          final friendshipData = friendshipDoc.data();
+          
+          String? friendId;
+          
+          // Check if it's a standard friendship document with users array
+          if (friendshipData['users'] != null) {
+            final users = List<String>.from(friendshipData['users'] ?? []);
+            debugPrint('👥 Users in friendship: $users');
+            
+            // Find the friend's ID (not current user)
+            friendId = users.firstWhere(
+              (userId) => userId != currentUserId,
+              orElse: () => '',
+            );
+          } 
+          // Check if it's a user's friends subcollection document
+          else if (friendshipDoc.id != currentUserId) {
+            friendId = friendshipDoc.id;
+            debugPrint('👤 Friend from subcollection: ${friendId.substring(0, 8)}');
+          }
+          // Check if it has a direct friendId field
+          else if (friendshipData['friendId'] != null) {
+            friendId = friendshipData['friendId'] as String;
+            debugPrint('👤 Friend from friendId field: ${friendId.substring(0, 8)}');
+          }
+          
+          debugPrint('👤 Final Friend ID: ${friendId?.isEmpty != false ? "EMPTY" : friendId!.substring(0, 8)}');
+          
+          if (friendId?.isEmpty != false) {
+            debugPrint('⚠️ Skipping - no valid friend ID found');
+            continue;
+          }
+        
+          // Get friend's profile data
+          debugPrint('📄 Getting profile data for friend: ${friendId!.substring(0, 8)}');
+          final friendDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(friendId!)
+              .get();
+            
+          if (!friendDoc.exists) {
+            debugPrint('❌ Friend profile not found for: ${friendId!.substring(0, 8)}');
+            continue;
+          }
+          
+          debugPrint('✅ Friend profile found');
+          
+          final friendData = friendDoc.data()!;
+          final friendName = friendData['displayName'] ?? 
+                            friendData['name'] ?? 
+                            friendData['email']?.split('@')[0] ?? 
+                            'Friend';
+          
+          debugPrint('👤 Friend name: "$friendName"');
+          debugPrint('📧 Friend email: ${friendData['email']}');
+          
+          // Check if friend has location data
+          final userLocations = locationProvider.userLocations;
+          final friendLocation = userLocations[friendId!];
+          debugPrint('📍 Real-time location: ${friendLocation != null ? "YES" : "NO"}');
+          debugPrint('🔄 Is sharing location: ${locationProvider.isUserSharingLocation(friendId!)}');
+          
+          LatLng? markerLocation;
+          Color markerColor;
+          
+          if (friendLocation != null && locationProvider.isUserSharingLocation(friendId!)) {
+            // Friend is online and sharing location - use real location
+            markerLocation = friendLocation;
+            markerColor = Colors.green; // Online
+            debugPrint('🟢 Using real-time location: $markerLocation.latitude, $markerLocation.longitude');
+          } else {
+            // Friend is offline - use last known location or default location
+            final lastLocation = friendData['location'];
+            debugPrint('📍 Last known location data: $lastLocation');
+            
+            if (lastLocation != null && lastLocation['lat'] != null && lastLocation['lng'] != null) {
+              markerLocation = LatLng(
+                lastLocation['lat'].toDouble(),
+                lastLocation['lng'].toDouble(),
+              );
+              markerColor = Colors.grey; // Offline
+              debugPrint('⚫ Using last known location: $markerLocation.latitude, $markerLocation.longitude');
+            } else {
+              // No location data available - skip this friend
+              debugPrint('❌ No location data available for $friendName - SKIPPING');
+              continue;
+            }
+          }
+          
+          // Add friend marker
+          final marker = MapMarker(
+            id: friendId!,
+            point: markerLocation,
+            label: friendName,
+            color: markerColor,
+            photoUrl: friendData['photoURL'],
+          );
+          markers.add(marker);
+          debugPrint('✅ Added friend marker: $friendName (${friendId!.substring(0, 8)}) at $markerLocation.latitude, $markerLocation.longitude');
+        }
+      }
+      
+      // Update markers if changed
+      if (mounted && (_cachedMarkers.length != markers.length || 
+          !_cachedMarkers.every((m) => markers.any((newM) => newM.id == m.id)))) {
         setState(() {
           _cachedMarkers = markers;
         });
-      });
+      }
+    } catch (e) {
+      debugPrint('Error loading friends markers: $e');
     }
   }
+
+  /// Filter friends based on search query
+  void _filterFriends(String query) {
+    setState(() {
+      _friendSearchQuery = query.toLowerCase();
+      if (_friendSearchQuery.isEmpty) {
+        _filteredMarkers = {};
+      } else {
+        _filteredMarkers = _cachedMarkers.where((marker) {
+          final friendName = marker.label?.toLowerCase() ?? '';
+          final matches = friendName.contains(_friendSearchQuery);
+          debugPrint('🔍 Search "$query" -> Friend "${marker.label}" (${friendName}) -> $matches');
+          return matches;
+        }).toSet();
+        debugPrint('🔍 Search Results: Found ${_filteredMarkers.length} friends matching "$query"');
+        debugPrint('🔍 All cached markers: ${_cachedMarkers.map((m) => m.label).toList()}');
+      }
+    });
+  }
+
 
   Widget _buildLocationInfo(LocationProvider locationProvider) {
     final currentLocation = locationProvider.currentLocation!;
@@ -856,7 +1119,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildBottomControls(LocationProvider locationProvider, app_auth.AuthProvider authProvider) {
+  Widget _buildBottomControls(LocationProvider locationProvider, app_auth.AuthProviderFixed authProvider) {
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.3, // Limit height to 30% of screen
@@ -1642,7 +1905,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return;
     }
 
-    final user = Provider.of<app_auth.AuthProvider>(context, listen: false).user;
+    final user = Provider.of<app_auth.AuthProviderFixed>(context, listen: false).user;
     if (user == null) return;
 
     try {

@@ -37,6 +37,7 @@ class SmoothModernMap extends StatefulWidget {
   final bool isLocationRealTime;
   final void Function(MapMarker)? onMarkerTap;
   final void Function(latlong.LatLng center, double zoom)? onMapMoved;
+  final void Function(String)? onFriendSearch;
 
   const SmoothModernMap({
     super.key,
@@ -48,13 +49,13 @@ class SmoothModernMap extends StatefulWidget {
     this.isLocationRealTime = false,
     this.onMarkerTap,
     this.onMapMoved,
+    this.onFriendSearch,
   });
 
   @override
   State<SmoothModernMap> createState() => _SmoothModernMapState();
 }
 
-enum _MapTheme { light, dark }
 
 class _SmoothModernMapState extends State<SmoothModernMap>
     with WidgetsBindingObserver, TickerProviderStateMixin {
@@ -93,7 +94,6 @@ class _SmoothModernMapState extends State<SmoothModernMap>
   
   late final AnimatedMapController _animatedMapController;
   MapController get _mapController => _animatedMapController.mapController;
-  _MapTheme _currentTheme = _MapTheme.light;
   double? _heading;
   StreamSubscription<MagnetometerEvent>? _magnetometerSubscription;
   bool _hasMagnetometer = false;
@@ -287,53 +287,100 @@ class _SmoothModernMapState extends State<SmoothModernMap>
     return markers;
   }
 
-  // Beautiful friend marker with profile pictures
+  // Beautiful friend marker with profile pictures and name labels
   Marker _buildFriendMarker(MapMarker mapMarker) {
+    // Extract first name from full name
+    String getFirstName(String? fullName) {
+      if (fullName == null || fullName.isEmpty) return 'Friend';
+      
+      final parts = fullName.toLowerCase().split(' ');
+      
+      // Handle specific cases
+      if (fullName.toLowerCase().contains('sisindri')) {
+        return 'Sisindri';
+      } else if (fullName.toLowerCase().contains('sundeep')) {
+        return 'Sundeep';
+      }
+      
+      // Default: return the first word, capitalized
+      return parts.first.substring(0, 1).toUpperCase() + 
+             parts.first.substring(1).toLowerCase();
+    }
+    
+    final firstName = getFirstName(mapMarker.label);
+    
     return Marker(
       point: mapMarker.point,
-      width: 80,
-      height: 80,
+      width: 100,
+      height: 110, // Increased height for name label
       child: GestureDetector(
         onTap: () => widget.onMarkerTap?.call(mapMarker),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: ClipOval(
-            child: Container(
-              margin: const EdgeInsets.all(4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Profile picture circle
+            Container(
+              width: 80,
+              height: 80,
               decoration: BoxDecoration(
-                color: mapMarker.color ?? Colors.blue,
+                color: Colors.white,
                 shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
-              child: mapMarker.photoUrl != null
-                  ? ClipOval(
-                      child: Image.network(
-                        mapMarker.photoUrl!,
-                        width: 72,
-                        height: 72,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          // Fallback to initials if image fails to load
-                          return _buildInitialsMarker(mapMarker);
-                        },
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return _buildInitialsMarker(mapMarker);
-                        },
-                      ),
-                    )
-                  : _buildInitialsMarker(mapMarker),
+              child: ClipOval(
+                child: Container(
+                  margin: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: mapMarker.color ?? Colors.blue,
+                    shape: BoxShape.circle,
+                  ),
+                  child: mapMarker.photoUrl != null
+                      ? ClipOval(
+                          child: Image.network(
+                            mapMarker.photoUrl!,
+                            width: 72,
+                            height: 72,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              // Fallback to initials if image fails to load
+                              return _buildInitialsMarker(mapMarker);
+                            },
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return _buildInitialsMarker(mapMarker);
+                            },
+                          ),
+                        )
+                      : _buildInitialsMarker(mapMarker),
+                ),
+              ),
             ),
-          ),
+            
+            // Name label below the picture
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                firstName,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -394,11 +441,72 @@ class _SmoothModernMapState extends State<SmoothModernMap>
     }
   }
 
-  void _toggleTheme() {
-    HapticFeedback.lightImpact();
-    setState(() {
-      _currentTheme = _currentTheme == _MapTheme.light ? _MapTheme.dark : _MapTheme.light;
-    });
+
+  void _showAllFriends() {
+    HapticFeedback.mediumImpact();
+    
+    if (widget.markers.isEmpty) {
+      // No friends to show
+      debugPrint('🔍 No friends to show on map');
+      return;
+    }
+    
+    debugPrint('🎯 Showing ${widget.markers.length} friends on map');
+    
+    if (widget.markers.length == 1) {
+      // If only one friend, center directly on them
+      final friend = widget.markers.first;
+      debugPrint('📍 Centering on single friend: ${friend.label} at ${friend.point.latitude}, ${friend.point.longitude}');
+      
+      _animatedMapController.animateTo(
+        dest: friend.point,
+        zoom: 12.0, // Good zoom level to see the friend clearly
+      );
+    } else {
+      // Multiple friends - calculate center and fit all
+      double minLat = double.infinity;
+      double maxLat = double.negativeInfinity;
+      double minLng = double.infinity;
+      double maxLng = double.negativeInfinity;
+      
+      for (final marker in widget.markers) {
+        final lat = marker.point.latitude;
+        final lng = marker.point.longitude;
+        
+        debugPrint('📍 Friend ${marker.label}: $lat, $lng');
+        
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+      }
+      
+      // Calculate center point
+      final centerLat = (minLat + maxLat) / 2;
+      final centerLng = (minLng + maxLng) / 2;
+      final center = latlong.LatLng(centerLat, centerLng);
+      
+      debugPrint('🎯 Center point calculated: $centerLat, $centerLng');
+      
+      // Add generous padding around the bounds
+      final latPadding = (maxLat - minLat) * 0.2; // Increased padding
+      final lngPadding = (maxLng - minLng) * 0.2; // Increased padding
+      
+      final bounds = LatLngBounds(
+        latlong.LatLng(minLat - latPadding, minLng - lngPadding),
+        latlong.LatLng(maxLat + latPadding, maxLng + lngPadding),
+      );
+      
+      // Fit the map to show all friends with generous padding
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: bounds,
+          padding: const EdgeInsets.all(80), // More padding for better centering
+        ),
+      );
+      
+      debugPrint('✅ Map fitted to show all friends centered');
+    }
   }
 
   @override
@@ -476,9 +584,7 @@ class _SmoothModernMapState extends State<SmoothModernMap>
                 children: [
                   // ULTRA-SMOOTH: Highly optimized tile layer for 60fps zoom
                   TileLayer(
-                    urlTemplate: _currentTheme == _MapTheme.dark
-                        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-                        : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+                    urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
                     subdomains: const ['a', 'b', 'c'],
                     userAgentPackageName: 'com.sundeep.groupsharing',
                     maxZoom: 19,
@@ -519,77 +625,48 @@ class _SmoothModernMapState extends State<SmoothModernMap>
                         ),
                       ],
                     ),
-                    child: const TextField(
-                      decoration: InputDecoration(
-                        hintText: 'Where to?',
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        hintText: 'Search your friends',
                         prefixIcon: Icon(Icons.search, color: Colors.grey),
                         border: InputBorder.none,
                         contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
                       ),
+                      onChanged: (value) {
+                        widget.onFriendSearch?.call(value);
+                      },
                     ),
                   ),
                 ),
               ),
             
-            // ULTRA-SMOOTH: Simplified location button (always visible)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 80,
-              right: 15,
-              child: RepaintBoundary(
-                child: FloatingActionButton(
-                  heroTag: 'location',
-                  mini: true,
-                  backgroundColor: widget.userLocation != null ? Colors.blue : Colors.white,
-                  elevation: 2,
-                  onPressed: _goToUserLocation,
-                  child: Icon(
-                    Icons.my_location, 
-                    color: widget.userLocation != null ? Colors.white : Colors.black87,
-                  ),
-                ),
-              ),
-            ),
             
             // ULTRA-SMOOTH: Essential controls only (compass hidden during zoom)
             Positioned(
-              bottom: 16,
+              bottom: 120, // Moved higher to avoid nearby users overlay
               right: 16,
               child: RepaintBoundary(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Compass only when not zooming
-                    if (_hasMagnetometer && _heading != null && !_isZooming)
-                      _CompassWidget(
-                        heading: _heading!,
-                        onTap: () {
-                          if (mounted) {
-                            _mapController.rotate(0);
-                          }
-                        },
-                      ),
-                    if (_hasMagnetometer && _heading != null && !_isZooming)
-                      const SizedBox(height: 8),
                     
-                    // Essential zoom controls (always visible)
+                    // Show friends button (always visible)
                     _CircleIconButton(
-                      icon: Icons.add,
-                      onTap: () => _zoomBy(1),
+                      icon: Icons.keyboard_double_arrow_right,
+                      onTap: _showAllFriends,
                     ),
                     const SizedBox(height: 8),
+                    
+                    // Essential zoom controls (always visible)
                     _CircleIconButton(
                       icon: Icons.remove,
                       onTap: () => _zoomBy(-1),
                     ),
-                    
-                    // Theme toggle (hidden during zoom)
-                    if (!_isZooming) ...[
-                      const SizedBox(height: 8),
-                      _CircleIconButton(
-                        icon: _currentTheme == _MapTheme.light ? Icons.dark_mode : Icons.light_mode,
-                        onTap: _toggleTheme,
-                      ),
-                    ],
+                    const SizedBox(height: 8),
+                    _CircleIconButton(
+                      icon: Icons.add,
+                      onTap: () => _zoomBy(1),
+                    ),
                   ],
                 ),
               ),

@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
-import '../../providers/auth_provider.dart' as app_auth;
+import '../../providers/auth_provider_fixed.dart' as app_auth;
 
 class NotificationScreen extends StatelessWidget {
   const NotificationScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final user = Provider.of<app_auth.AuthProvider>(context).user;
+    final user = Provider.of<app_auth.AuthProviderFixed>(context).user;
     if (user == null) {
       return const Center(child: Text('Please log in.'));
     }
