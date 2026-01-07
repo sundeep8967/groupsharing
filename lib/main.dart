@@ -25,6 +25,7 @@ import 'services/location_service_starter.dart';
 import 'screens/performance_monitor_screen.dart';
 import 'screens/settings/background_activity_setup_screen.dart';
 import 'services/persistent_location_service.dart';
+import 'services/background_geolocation_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,6 +48,9 @@ void main() async {
   
   // Initialize FCM service
   await FCMService.initialize();
+  
+  // Register BackgroundGeolocation Headless Task (For Android Terminated State)
+  await BackgroundGeolocationService.registerHeadlessTask();
   
   // Deep links removed - were not being used by any UI elements
   

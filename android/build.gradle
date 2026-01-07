@@ -13,8 +13,14 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Patched flutter_background_geolocation local AARs
+        maven {
+            url "${project(':flutter_background_geolocation').projectDir}/libs"
+        }
     }
 }
+// Force compatible Play Services Location version for flutter_background_geolocation
+rootProject.ext.playServicesLocationVersion = '21.0.1'
 rootProject.buildDir = "../build"
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"

@@ -24,6 +24,7 @@ import '../services/emergency_offline_tracker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/background_geolocation_service.dart';
 
 /// Enhanced Location Provider that uses the Persistent Location Service
 /// This provider ensures location tracking continues even when the app is killed
@@ -233,16 +234,23 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
       // Save tracking state
       await _saveTrackingState(userId, true);
       
-      // Use Universal Location Integration Service for tracking
-      developer.log('Starting UniversalLocationIntegrationService for user: $userId');
-      UniversalLocationIntegrationService.onLocationUpdate = _handleLocationUpdate;
-      UniversalLocationIntegrationService.onError = _handleLocationError;
-      UniversalLocationIntegrationService.onServiceStopped = _handleServiceStopped;
-      
-      final universalStarted = await UniversalLocationIntegrationService.startLocationTrackingForUser(userId);
-      if (!universalStarted) {
-        developer.log('Failed to start universal location service, trying fallback');
-        await _startFallbackTracking(userId);
+      // Use patched BackgroundGeolocationService as primary
+      developer.log('Starting BackgroundGeolocationService for user: $userId');
+      try {
+        await BackgroundGeolocationService.startTracking(userId);
+        developer.log('BackgroundGeolocationService started successfully');
+      } catch (e) {
+        developer.log('BackgroundGeolocationService failed: $e, trying fallback');
+        // Fallback to UniversalLocationIntegrationService
+        UniversalLocationIntegrationService.onLocationUpdate = _handleLocationUpdate;
+        UniversalLocationIntegrationService.onError = _handleLocationError;
+        UniversalLocationIntegrationService.onServiceStopped = _handleServiceStopped;
+        
+        final universalStarted = await UniversalLocationIntegrationService.startLocationTrackingForUser(userId);
+        if (!universalStarted) {
+          developer.log('Failed to start universal location service, trying fallback');
+          await _startFallbackTracking(userId);
+        }
       }
 
       // Start sync monitoring (Keep this for UI updates from Firebase)
