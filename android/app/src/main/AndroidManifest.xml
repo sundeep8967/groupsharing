@@ -44,7 +44,7 @@
 <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-<!-- Required for flutter_background_geolocation -->
+<!-- Activity recognition for tracking -->
 <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
 <!-- Remove storage/keyguard legacy perms not needed for location sharing -->
@@ -68,6 +68,7 @@
         android:icon="@mipmap/launcher_icon"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+        android:extractNativeLibs="true"
         tools:replace="android:label">
 
         <!-- Google Play Services Version -->

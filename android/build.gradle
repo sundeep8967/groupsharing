@@ -13,10 +13,6 @@ allprojects {
     repositories {
         google()
         mavenCentral()
-        // Local patched AARs for flutter_background_geolocation
-        maven {
-            url "${System.getProperty('user.home')}/.pub-cache/hosted/pub.dev/flutter_background_geolocation-4.18.2/android/libs"
-        }
     }
 }
 rootProject.buildDir = "../build"

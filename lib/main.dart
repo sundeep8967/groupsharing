@@ -25,7 +25,6 @@ import 'services/location_service_starter.dart';
 import 'screens/performance_monitor_screen.dart';
 import 'screens/settings/background_activity_setup_screen.dart';
 import 'services/persistent_location_service.dart';
-import 'services/background_geolocation_service.dart'; // Patched service
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

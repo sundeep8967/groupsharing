@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../providers/auth_provider.dart' as app_auth;
+import '../../providers/auth_provider_fixed.dart';
 import 'package:groupsharing/services/location_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../utils/theme.dart';
@@ -20,7 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       setState(() => _isLoading = true);
-      final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+      final authProvider = Provider.of<AuthProviderFixed>(context, listen: false);
       
       // Attempt sign in
       final result = await authProvider.signInWithGoogle();

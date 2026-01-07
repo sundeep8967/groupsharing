@@ -24,7 +24,6 @@ import '../services/emergency_offline_tracker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../services/background_geolocation_service.dart';
 
 /// Enhanced Location Provider that uses the Persistent Location Service
 /// This provider ensures location tracking continues even when the app is killed
@@ -234,40 +233,23 @@ class LocationProvider with ChangeNotifier implements ILocationProvider {
       // Save tracking state
       await _saveTrackingState(userId, true);
       
-      // --- NEW IMPLEMENTATION: Use Patched Background Geolocation Service ---
-      developer.log('Starting BackgroundGeolocationService for user: $userId');
-      await BackgroundGeolocationService.startTracking(userId);
+      // Use Universal Location Integration Service for tracking
+      developer.log('Starting UniversalLocationIntegrationService for user: $userId');
+      UniversalLocationIntegrationService.onLocationUpdate = _handleLocationUpdate;
+      UniversalLocationIntegrationService.onError = _handleLocationError;
+      UniversalLocationIntegrationService.onServiceStopped = _handleServiceStopped;
+      
+      final universalStarted = await UniversalLocationIntegrationService.startLocationTrackingForUser(userId);
+      if (!universalStarted) {
+        developer.log('Failed to start universal location service, trying fallback');
+        await _startFallbackTracking(userId);
+      }
 
       // Start sync monitoring (Keep this for UI updates from Firebase)
       _startSyncMonitoring();
       
       // Initialize emergency offline tracker for safety (Keep as backup)
       await EmergencyOfflineTracker.initialize(userId);
-      
-      _isTracking = true;
-      _userSharingStatus[userId] = true;
-      _status = 'Location sharing active (Patched Service)';
-      if (_mounted) notifyListeners();
-      
-      return true;
-      // ---------------------------------------------------------------------
-
-      /* 
-      // LEGACY CODE DISABLED
-      UniversalLocationIntegrationService.onLocationUpdate = _handleLocationUpdate;
-      UniversalLocationIntegrationService.onError = _handleLocationError;
-      UniversalLocationIntegrationService.onServiceStopped = _handleServiceStopped;
-      
-      final universalStarted = await UniversalLocationIntegrationService.startLocationTrackingForUser(userId);
-      if (!universalStarted) { ... } 
-      */
-      
-      // Start sync monitoring
-      _startSyncMonitoring();
-      
-      // Initialize emergency offline tracker for safety
-      await EmergencyOfflineTracker.initialize(userId);
-      developer.log('Emergency offline tracker initialized for safety');
       
       _isTracking = true;
       _userSharingStatus[userId] = true;
